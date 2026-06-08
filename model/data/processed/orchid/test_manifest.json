@@ -1,0 +1,11 @@
+{
+  "split": "test",
+  "classes": {
+    "mdoscc": 421,
+    "normal": 163,
+    "osmf": 328,
+    "pdoscc": 247,
+    "wdoscc": 433
+  },
+  "total": 1592
+}

@@ -1,0 +1,27 @@
+{
+  "name": "Kaggle OSCC",
+  "source": "https://www.kaggle.com/datasets",
+  "license": "CC BY 4.0",
+  "citation": "Tabassum et al. (2020)",
+  "local_path": "model/data/raw/kaggle_oscc",
+  "expected_structure": {
+    "normal": "*.jpg",
+    "oscc": "*.jpg"
+  },
+  "classes": {
+    "normal": 0,
+    "oscc": 1
+  },
+  "split": {
+    "train": 0.70,
+    "val": 0.15,
+    "test": 0.15
+  },
+  "seed": 42,
+  "preprocessing": {
+    "target_size": [224, 224],
+    "normalize": true,
+    "stain_norm": "macenko",
+    "augmentation": ["flip", "rotation", "color_jitter", "elastic_distortion"]
+  }
+}

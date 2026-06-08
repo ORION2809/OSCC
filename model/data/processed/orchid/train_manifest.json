@@ -1,0 +1,11 @@
+{
+  "split": "train",
+  "classes": {
+    "mdoscc": 2699,
+    "normal": 1045,
+    "osmf": 2095,
+    "pdoscc": 1599,
+    "wdoscc": 2790
+  },
+  "total": 10228
+}

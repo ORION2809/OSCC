@@ -1,0 +1,38 @@
+{
+  "name": "ORCHID",
+  "source": "https://huggingface.co/datasets (search ORCHID OSCC)",
+  "license": "CC BY 4.0",
+  "citation": "NishaChaudhary23 et al. (2024)",
+  "local_path": "model/data/processed/orchid",
+  "expected_structure": {
+    "normal": "*.png",
+    "osmf": "*.png",
+    "wd": "*.png",
+    "md": "*.png",
+    "pd": "*.png"
+  },
+  "classes": {
+    "normal": 0,
+    "osmf": 1,
+    "wd": 2,
+    "md": 3,
+    "pd": 4
+  },
+  "class_aliases": {
+    "wd": ["wdoscc"],
+    "md": ["mdoscc"],
+    "pd": ["pdoscc"]
+  },
+  "split": {
+    "train": 0.70,
+    "val": 0.15,
+    "test": 0.15
+  },
+  "seed": 42,
+  "preprocessing": {
+    "target_size": [224, 224],
+    "normalize": true,
+    "stain_norm": "macenko",
+    "augmentation": ["flip", "rotation", "color_jitter"]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe",
+  "jupyter.askForKernelRestart": false,
+  "notebook.formatOnSave.enabled": true,
+  "files.associations": {
+    "*.ipynb": "jupyter-notebook"
+  }
+}

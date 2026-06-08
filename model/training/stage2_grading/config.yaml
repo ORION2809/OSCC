@@ -1,0 +1,62 @@
+# OralPath -- Stage 2 Grading Training Config
+# Five-class classification: normal / OSMF / WD / MD / PD
+
+experiment_name: "stage2_grading_v1"
+seed: 42
+
+# Dataset
+dataset:
+  manifest: "model/data/manifests/orchid.json"
+  target_size: [224, 224]
+  batch_size: 32
+  num_workers: 4
+  stain_norm: "macenko"
+
+# Model
+model:
+  backbone: "uni"  # options: uni, ctranspath, efficientnetb3
+  freeze_backbone: true
+  head_hidden_dim: 512
+  dropout: 0.3
+  num_classes: 5
+
+# Training
+training:
+  epochs: 50
+  optimizer: "adamw"
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  scheduler: "cosine"
+  warmup_epochs: 5
+  label_smoothing: 0.1
+  early_stopping_patience: 10
+
+# Augmentation
+augmentation:
+  horizontal_flip: true
+  vertical_flip: false
+  rotation_degrees: 15
+  color_jitter:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.1
+    hue: 0.05
+  elastic_distortion: false
+
+# Evaluation
+evaluation:
+  metrics: ["accuracy", "weighted_f1", "macro_f1", "per_class_f1", "confusion_matrix"]
+  target_accuracy: 0.85
+  class_names: ["normal", "osmf", "wd", "md", "pd"]
+
+# Export
+export:
+  onnx: true
+  tflite: false
+  output_dir: "model/export/stage2/"
+
+# Logging
+logging:
+  log_dir: "model/training/stage2_grading/logs/"
+  checkpoint_dir: "model/training/stage2_grading/checkpoints/"
+  save_best_only: true

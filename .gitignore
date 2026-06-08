@@ -1,0 +1,84 @@
+# OralPath — Git Ignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+
+# Model artifacts
+*.pth
+*.pt
+*.onnx
+*.tflite
+*.h5
+*.ckpt
+checkpoints/
+logs/
+wandb/
+model/external/weights/
+
+# Data (large files)
+model/data/raw/
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+*.svs
+*.ndpi
+
+# Android
+android/.gradle/
+android/app/build/
+android/local.properties
+android/*.iml
+android/.idea/
+android/captures/
+android/externalNativeBuild/
+android/.cxx/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reports
+model/evaluation/reports/
+*.pdf
+
+# Jupyter
+.ipynb_checkpoints/
+.env
+__pycache__/
+.venv/
+.env
+*.log
+
+# Local Colab / browser automation artifacts
+.playwright-mcp/
+colab_*.png
+
+# Agent/local tool state
+.claude/
+.pytest_cache/
+
+# Secrets
+kaggle.json
+*.secret

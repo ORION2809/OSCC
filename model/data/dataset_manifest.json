@@ -1,0 +1,38 @@
+{
+  "datasets": {
+    "kaggle_oscc": {
+      "task": "stage1_binary",
+      "classes": ["Normal", "OSCC"],
+      "splits": {
+        "train": {"Normal": 2435, "OSCC": 2511, "total": 4946},
+        "val": {"Normal": 28, "OSCC": 92, "total": 120},
+        "test": {"Normal": 31, "OSCC": 95, "total": 126}
+      },
+      "path": "model/data/raw/kaggle_oscc",
+      "description": "Kaggle OSCC dataset for binary classification (Normal vs OSCC)"
+    },
+    "orchid": {
+      "task": "stage2_multiclass",
+      "classes": ["normal", "osmf", "wdoscc", "mdoscc", "pdoscc"],
+      "class_labels": {
+        "normal": "Normal oral mucosa",
+        "osmf": "Oral Submucous Fibrosis",
+        "wdoscc": "Well differentiated OSCC",
+        "mdoscc": "Moderately differentiated OSCC",
+        "pdoscc": "Poorly differentiated OSCC"
+      },
+      "splits": {
+        "train": {"normal": 1045, "osmf": 2095, "wdoscc": 2790, "mdoscc": 2699, "pdoscc": 1599, "total": 10228},
+        "val": {"normal": 294, "osmf": 592, "wdoscc": 788, "mdoscc": 760, "pdoscc": 451, "total": 2885},
+        "test": {"normal": 163, "osmf": 328, "wdoscc": 433, "mdoscc": 421, "pdoscc": 247, "total": 1592}
+      },
+      "path": "model/data/processed/orchid",
+      "description": "ORCHID dataset for 5-class oral lesion classification"
+    }
+  },
+  "totals": {
+    "kaggle_oscc_images": 5192,
+    "orchid_patches": 14705,
+    "combined": 19897
+  }
+}

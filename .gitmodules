@@ -1,0 +1,9 @@
+[submodule "model/external/oralpatho"]
+	path = model/external/oralpatho
+	url = https://github.com/NishaChaudhary23/oralpatho.git
+[submodule "model/external/orchid"]
+	path = model/external/orchid
+	url = https://github.com/NishaChaudhary23/ORCHID.git
+[submodule "model/external/ctranspath"]
+	path = model/external/ctranspath
+	url = https://github.com/Xiyue-Wang/TransPath.git
