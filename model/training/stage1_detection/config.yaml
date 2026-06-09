@@ -9,7 +9,7 @@ dataset:
   manifest: "model/data/manifests/kaggle_oscc.json"
   target_size: [224, 224]
   batch_size: 32
-  num_workers: 4
+  num_workers: 2
   stain_norm: "macenko"  # options: none, macenko
 
 # Model

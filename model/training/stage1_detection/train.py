@@ -255,6 +255,7 @@ def main():
     parser.add_argument("--config", type=str, default="model/training/stage1_detection/config.yaml")
     parser.add_argument("--dry-run", action="store_true", help="Print config and exit")
     parser.add_argument("--max-batches", type=int, default=None, help="Limit batches per split for smoke tests")
+    parser.add_argument("--max-epochs", type=int, default=None, help="Limit epochs for smoke tests")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -308,7 +309,11 @@ def main():
     patience = int(config["training"]["early_stopping_patience"])
     stale_epochs = 0
 
-    for epoch in range(1, int(config["training"]["epochs"]) + 1):
+    epoch_count = int(config["training"]["epochs"])
+    if args.max_epochs is not None:
+        epoch_count = min(epoch_count, args.max_epochs)
+
+    for epoch in range(1, epoch_count + 1):
         train_loss = train_one_epoch(model, loaders["train"], criterion, optimizer, device, args.max_batches)
         val_metrics = evaluate(model, loaders["val"], criterion, device, args.max_batches)
         scheduler.step()

@@ -100,6 +100,8 @@ def run_stage1() -> None:
             "model/training/stage1_detection/config.yaml",
             "--max-batches",
             "1",
+            "--max-epochs",
+            "1",
         ],
         cwd=REMOTE_REPO,
     )
