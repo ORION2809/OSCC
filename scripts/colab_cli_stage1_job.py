@@ -27,18 +27,23 @@ FULL_STAGE1_FLAG = Path("/content/full_stage1.flag")
 
 def run(command: list[str], cwd: Path | None = None) -> None:
     print("[RUN]", " ".join(command), flush=True)
-    completed = subprocess.run(
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    process = subprocess.Popen(
         command,
         cwd=str(cwd) if cwd else None,
+        env=env,
         text=True,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
     )
-    if completed.stdout:
-        print(completed.stdout, flush=True)
-    if completed.stderr:
-        print(completed.stderr, flush=True)
-    completed.check_returncode()
+    assert process.stdout is not None
+    for line in process.stdout:
+        print(line, end="", flush=True)
+    return_code = process.wait()
+    if return_code:
+        raise subprocess.CalledProcessError(return_code, command)
 
 
 def disk(label: str) -> None:

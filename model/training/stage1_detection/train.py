@@ -232,11 +232,19 @@ def evaluate(model, loader, criterion, device, max_batches: int | None = None):
     return metrics
 
 
-def train_one_epoch(model, loader, criterion, optimizer, device, max_batches: int | None = None):
+def train_one_epoch(
+    model,
+    loader,
+    criterion,
+    optimizer,
+    device,
+    max_batches: int | None = None,
+    epoch: int | None = None,
+):
     model.train()
     losses = []
 
-    for images, targets in iter_limited(loader, max_batches):
+    for batch_index, (images, targets) in enumerate(iter_limited(loader, max_batches), start=1):
         images = images.to(device)
         targets = targets.to(device)
 
@@ -246,6 +254,13 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_batches: in
         loss.backward()
         optimizer.step()
         losses.append(float(loss.item()))
+        if batch_index == 1 or batch_index % 25 == 0:
+            prefix = f"Epoch {epoch:03d}" if epoch is not None else "Train"
+            print(
+                f"{prefix} batch {batch_index}/{len(loader)} "
+                f"loss={float(loss.item()):.4f}",
+                flush=True,
+            )
 
     return float(np.mean(losses)) if losses else 0.0
 
@@ -314,7 +329,15 @@ def main():
         epoch_count = min(epoch_count, args.max_epochs)
 
     for epoch in range(1, epoch_count + 1):
-        train_loss = train_one_epoch(model, loaders["train"], criterion, optimizer, device, args.max_batches)
+        train_loss = train_one_epoch(
+            model,
+            loaders["train"],
+            criterion,
+            optimizer,
+            device,
+            args.max_batches,
+            epoch,
+        )
         val_metrics = evaluate(model, loaders["val"], criterion, device, args.max_batches)
         scheduler.step()
 
@@ -330,7 +353,8 @@ def main():
             f"Epoch {epoch:03d} | train_loss={train_loss:.4f} "
             f"val_auc={val_metrics['auc_roc']:.4f} "
             f"val_sens={val_metrics['sensitivity']:.4f} "
-            f"val_spec={val_metrics['specificity']:.4f}"
+            f"val_spec={val_metrics['specificity']:.4f}",
+            flush=True,
         )
 
         if val_metrics["auc_roc"] > best_auc:
@@ -349,7 +373,7 @@ def main():
         else:
             stale_epochs += 1
             if stale_epochs >= patience:
-                print(f"Early stopping after {epoch} epochs.")
+                print(f"Early stopping after {epoch} epochs.", flush=True)
                 break
 
     test_metrics = evaluate(model, loaders["test"], criterion, device, args.max_batches)
@@ -364,10 +388,10 @@ def main():
     report_path = log_dir / "stage1_report.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-    print("\nTraining complete.")
-    print(f"Best checkpoint: {best_path}")
-    print(f"Report: {report_path}")
-    print(json.dumps({"test": test_metrics}, indent=2))
+    print("\nTraining complete.", flush=True)
+    print(f"Best checkpoint: {best_path}", flush=True)
+    print(f"Report: {report_path}", flush=True)
+    print(json.dumps({"test": test_metrics}, indent=2), flush=True)
 
 
 if __name__ == "__main__":
