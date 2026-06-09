@@ -99,16 +99,23 @@ if ($FullTraining) {
 }
 
 Write-Host "[6/7] Running Stage 1 remote job..."
-wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && cd '$RepoWsl' && colab --auth=$ColabAuth exec -s $Session --timeout 7200 -f scripts/colab_cli_stage1_job.py"
-if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Colab exec returned exit code ${LASTEXITCODE}; continuing to artifact download."
+$PreviousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && cd '$RepoWsl' && colab --auth=$ColabAuth exec -s $Session --timeout 7200 -f scripts/colab_cli_stage1_job.py"
+    $ExecExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $PreviousErrorActionPreference
+}
+if ($ExecExitCode -ne 0) {
+    Write-Warning "Colab exec returned exit code ${ExecExitCode}; continuing to artifact download."
 }
 
 Write-Host "[7/7] Downloading reports/checkpoints if present..."
 New-Item -ItemType Directory -Force -Path (Join-Path $RepoWin "model\evaluation\reports\colab_cli") | Out-Null
 wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/logs/stage1_report.json '$RepoWsl/model/evaluation/reports/colab_cli/stage1_report.json' || true"
-wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/checkpoints/stage1_best.pt '$RepoWsl/model/evaluation/reports/colab_cli/stage1_best.pt' || true"
 wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/checkpoints/stage1_last.pt '$RepoWsl/model/evaluation/reports/colab_cli/stage1_last.pt' || true"
+wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/checkpoints/stage1_best.pt '$RepoWsl/model/evaluation/reports/colab_cli/stage1_best.pt' || true"
 
 Write-Host "[DONE] Session is still running for inspection. Stop it with:"
 Write-Host "  wsl -d Ubuntu -- bash -lc `"source ~/.local/bin/env && colab --auth=$ColabAuth stop -s $Session`""
