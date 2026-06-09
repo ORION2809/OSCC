@@ -1,5 +1,6 @@
 param(
-    [switch]$FullTraining
+    [switch]$FullTraining,
+    [int]$FullEpochs = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +12,7 @@ $ColabAuth = "oauth2"
 $KaggleWin = Join-Path $HOME ".kaggle\kaggle.json"
 $HfTokenWin = Join-Path $env:TEMP "oralpath_hf_token.secret"
 $FullFlagWin = Join-Path $env:TEMP "oralpath_full_stage1.flag"
+$FullEpochsWin = Join-Path $env:TEMP "oralpath_full_stage1_epochs.txt"
 
 function Invoke-WslColab {
     param(
@@ -77,6 +79,16 @@ if ($FullTraining) {
         Invoke-WslColab "source ~/.local/bin/env && colab --auth=$ColabAuth upload -s $Session '$FullFlagWsl' /content/full_stage1.flag"
     } finally {
         Remove-Item -LiteralPath $FullFlagWin -Force -ErrorAction SilentlyContinue
+    }
+    if ($FullEpochs -gt 0) {
+        Set-Content -Path $FullEpochsWin -Value $FullEpochs -NoNewline -Encoding ascii
+        $FullEpochsWsl = (wsl -d Ubuntu -- bash -lc "wslpath -a '$($FullEpochsWin -replace '\\','\\')'").Trim()
+        try {
+            Write-Host "[5/7] Uploading full-training epoch limit: $FullEpochs..."
+            Invoke-WslColab "source ~/.local/bin/env && colab --auth=$ColabAuth upload -s $Session '$FullEpochsWsl' /content/full_stage1_epochs.txt"
+        } finally {
+            Remove-Item -LiteralPath $FullEpochsWin -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

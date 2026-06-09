@@ -23,6 +23,7 @@ REMOTE_REPO = Path("/content/oralpath")
 KAGGLE_UPLOAD = Path("/content/kaggle.json")
 HF_TOKEN_UPLOAD = Path("/content/hf_token.secret")
 FULL_STAGE1_FLAG = Path("/content/full_stage1.flag")
+FULL_STAGE1_EPOCHS = Path("/content/full_stage1_epochs.txt")
 
 
 def run(command: list[str], cwd: Path | None = None) -> None:
@@ -129,15 +130,17 @@ def run_stage1() -> None:
     )
 
     if os.environ.get("ORALPATH_FULL_STAGE1") == "1" or FULL_STAGE1_FLAG.exists():
-        run(
-            [
-                sys.executable,
-                "model/training/stage1_detection/train.py",
-                "--config",
-                "model/training/stage1_detection/config.yaml",
-            ],
-            cwd=REMOTE_REPO,
-        )
+        command = [
+            sys.executable,
+            "model/training/stage1_detection/train.py",
+            "--config",
+            "model/training/stage1_detection/config.yaml",
+        ]
+        if FULL_STAGE1_EPOCHS.exists():
+            epoch_limit = FULL_STAGE1_EPOCHS.read_text(encoding="utf-8").strip()
+            if epoch_limit:
+                command.extend(["--max-epochs", epoch_limit])
+        run(command, cwd=REMOTE_REPO)
     else:
         print("[SKIP] Full Stage 1 training skipped. Set ORALPATH_FULL_STAGE1=1 to run it.", flush=True)
 
