@@ -32,17 +32,25 @@ Write-Host "[2/7] Checking Colab auth..."
 Invoke-WslColab "source ~/.local/bin/env && colab --auth=adc sessions"
 
 Write-Host "[3/7] Starting Colab T4 session..."
-Invoke-WslColab "source ~/.local/bin/env && (colab --auth=adc status -s $Session >/dev/null 2>&1 || colab --auth=adc new -s $Session --gpu T4)"
+$sessionList = wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=adc sessions"
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to list Colab sessions."
+}
+if ($sessionList -match [regex]::Escape($Session)) {
+    Write-Host "[OK] Reusing existing Colab session: $Session"
+} else {
+    Invoke-WslColab "source ~/.local/bin/env && colab --auth=adc new -s $Session --gpu T4"
+}
+Invoke-WslColab "source ~/.local/bin/env && colab --auth=adc status -s $Session"
 
-Write-Host "[4/7] Installing remote base packages..."
-Invoke-WslColab "source ~/.local/bin/env && colab --auth=adc install -s $Session git kaggle"
+Write-Host "[4/7] Remote package install is handled inside the job..."
 
 Write-Host "[5/7] Uploading Kaggle credentials..."
 Invoke-WslColab "source ~/.local/bin/env && colab --auth=adc upload -s $Session /mnt/c/Users/ShreyasSuvarna/.kaggle/kaggle.json /content/kaggle.json"
 
 Write-Host "[6/7] Running Stage 1 remote job..."
 $full = if ($FullTraining) { "ORALPATH_FULL_STAGE1=1 " } else { "" }
-Invoke-WslColab "source ~/.local/bin/env && cd '$RepoWsl' && ${full}colab --auth=adc exec -s $Session -f scripts/colab_cli_stage1_job.py"
+Invoke-WslColab "source ~/.local/bin/env && cd '$RepoWsl' && ${full}colab --auth=adc exec -s $Session --timeout 7200 -f scripts/colab_cli_stage1_job.py"
 
 Write-Host "[7/7] Downloading reports/checkpoints if present..."
 New-Item -ItemType Directory -Force -Path (Join-Path $RepoWin "model\evaluation\reports\colab_cli") | Out-Null

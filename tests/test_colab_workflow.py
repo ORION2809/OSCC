@@ -1,6 +1,10 @@
 import re
 from pathlib import Path
 
+from PIL import Image
+
+from scripts.setup_colab_ephemeral_data import normalize_kaggle_tree
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -47,3 +51,23 @@ def test_colab_runbook_rejects_playwright_control():
     assert "Do not use Playwright" in setup_doc
     assert "not from Playwright and not from a terminal command" in setup_doc
     assert "Do not upload the whole project folder to Drive" in setup_doc
+
+
+def test_ephemeral_setup_normalizes_raw_kaggle_tree(tmp_path):
+    dataset_root = tmp_path / "kaggle_oscc"
+    for label in ("Normal", "OSCC"):
+        for magnification in ("100x", "400x"):
+            for index in range(10):
+                image_path = dataset_root / label / magnification / f"{label}_{index}.jpg"
+                image_path.parent.mkdir(parents=True, exist_ok=True)
+                Image.new("RGB", (8, 8), color=(index, index, index)).save(image_path)
+
+    normalize_kaggle_tree(dataset_root)
+
+    for split in ("train", "val", "test"):
+        for label in ("Normal", "OSCC"):
+            assert (dataset_root / split / label).exists()
+
+    assert len(list((dataset_root / "train" / "Normal").glob("*.jpg"))) == 14
+    assert len(list((dataset_root / "val" / "Normal").glob("*.jpg"))) == 3
+    assert len(list((dataset_root / "test" / "Normal").glob("*.jpg"))) == 3

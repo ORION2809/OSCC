@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import random
 import shutil
 import subprocess
 import zipfile
@@ -24,6 +25,7 @@ RAW_ROOT = REPO_ROOT / "model" / "data" / "raw"
 PROCESSED_ROOT = REPO_ROOT / "model" / "data" / "processed"
 
 KAGGLE_SLUG = "ashenafifasilkebede/dataset"
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 ORCHID_FILES = {
     "train": ("https://zenodo.org/api/records/12636426/files/train.zip/content", RAW_ROOT / "train.zip"),
     "val": ("https://zenodo.org/api/records/12646943/files/val.zip/content", RAW_ROOT / "val.zip"),
@@ -32,7 +34,7 @@ ORCHID_FILES = {
 
 
 def run(command: list[str], cwd: Path | None = None) -> None:
-    print("[RUN]", " ".join(command))
+    print("[RUN]", " ".join(command), flush=True)
     subprocess.run(command, cwd=str(cwd) if cwd else None, check=True)
 
 
@@ -75,15 +77,10 @@ def normalize_kaggle_tree(dataset_root: Path) -> None:
     # Already good.
     if (dataset_root / "train").exists() and (dataset_root / "test").exists():
         print("[OK] Kaggle tree already has train/test split.")
-        return
-
-    nested_candidates = [
-        path
-        for path in dataset_root.rglob("*")
-        if path.is_dir() and (path / "100x").exists() or path.is_dir() and (path / "400x").exists()
-    ]
-    if nested_candidates:
-        print("[INFO] Found raw 100x/400x layout. Leaving as-is for manual preprocessing.")
+        validation = dataset_root / "validation"
+        if validation.exists() and not (dataset_root / "val").exists():
+            validation.rename(dataset_root / "val")
+            print("[OK] Renamed validation -> val")
         return
 
     # Some Kaggle mirrors use validation instead of val.
@@ -91,6 +88,84 @@ def normalize_kaggle_tree(dataset_root: Path) -> None:
     if validation.exists() and not (dataset_root / "val").exists():
         validation.rename(dataset_root / "val")
         print("[OK] Renamed validation -> val")
+
+    samples = collect_labeled_images(dataset_root)
+    if not any(samples.values()):
+        raise ValueError(
+            "Could not infer Normal/OSCC labels from Kaggle extraction. "
+            f"Inspect the downloaded tree under {dataset_root}."
+        )
+
+    print(
+        "[INFO] Normalizing raw Kaggle tree: "
+        f"{len(samples['Normal'])} Normal, {len(samples['OSCC'])} OSCC",
+        flush=True,
+    )
+    build_split_tree(dataset_root, samples)
+
+
+def collect_labeled_images(dataset_root: Path) -> dict[str, list[Path]]:
+    samples = {"Normal": [], "OSCC": []}
+    split_names = {"train", "val", "test", "validation"}
+
+    for image_path in dataset_root.rglob("*"):
+        if not image_path.is_file() or image_path.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        parts = [part.lower() for part in image_path.relative_to(dataset_root).parts]
+        if parts and parts[0] in split_names:
+            continue
+
+        text = " ".join(parts)
+        if "normal" in text:
+            samples["Normal"].append(image_path)
+        elif "oscc" in text:
+            samples["OSCC"].append(image_path)
+
+    return samples
+
+
+def build_split_tree(dataset_root: Path, samples: dict[str, list[Path]]) -> None:
+    random.seed(42)
+    staging_root = dataset_root.parent / f"{dataset_root.name}_normalized"
+    shutil.rmtree(staging_root, ignore_errors=True)
+
+    split_ratios = {"train": 0.70, "val": 0.15, "test": 0.15}
+    for split in split_ratios:
+        for label in samples:
+            (staging_root / split / label).mkdir(parents=True, exist_ok=True)
+
+    for label, paths in samples.items():
+        if not paths:
+            raise ValueError(f"No Kaggle images found for class {label}")
+
+        paths = sorted(paths)
+        random.shuffle(paths)
+        train_end = int(len(paths) * split_ratios["train"])
+        val_end = train_end + int(len(paths) * split_ratios["val"])
+        split_paths = {
+            "train": paths[:train_end],
+            "val": paths[train_end:val_end],
+            "test": paths[val_end:],
+        }
+
+        for split, split_items in split_paths.items():
+            for index, source in enumerate(split_items):
+                destination = staging_root / split / label / f"{label.lower()}_{index:05d}{source.suffix.lower()}"
+                shutil.copy2(source, destination)
+
+    for child in list(dataset_root.iterdir()):
+        if child.name in {"train", "val", "test"}:
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+
+    for child in staging_root.iterdir():
+        shutil.move(str(child), dataset_root / child.name)
+    shutil.rmtree(staging_root, ignore_errors=True)
+    print("[OK] Built Kaggle train/val/test split tree.", flush=True)
 
 
 def setup_kaggle_oscc() -> None:
