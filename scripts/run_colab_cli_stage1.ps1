@@ -99,7 +99,10 @@ if ($FullTraining) {
 }
 
 Write-Host "[6/7] Running Stage 1 remote job..."
-Invoke-WslColab "source ~/.local/bin/env && cd '$RepoWsl' && colab --auth=$ColabAuth exec -s $Session --timeout 7200 -f scripts/colab_cli_stage1_job.py"
+wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && cd '$RepoWsl' && colab --auth=$ColabAuth exec -s $Session --timeout 7200 -f scripts/colab_cli_stage1_job.py"
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "Colab exec returned exit code ${LASTEXITCODE}; continuing to artifact download."
+}
 
 Write-Host "[7/7] Downloading reports/checkpoints if present..."
 New-Item -ItemType Directory -Force -Path (Join-Path $RepoWin "model\evaluation\reports\colab_cli") | Out-Null
