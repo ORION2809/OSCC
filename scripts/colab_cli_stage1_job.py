@@ -22,6 +22,7 @@ REPO_URL = "https://github.com/ORION2809/OSCC.git"
 REMOTE_REPO = Path("/content/oralpath")
 KAGGLE_UPLOAD = Path("/content/kaggle.json")
 HF_TOKEN_UPLOAD = Path("/content/hf_token.secret")
+FULL_STAGE1_FLAG = Path("/content/full_stage1.flag")
 
 
 def run(command: list[str], cwd: Path | None = None) -> None:
@@ -122,7 +123,7 @@ def run_stage1() -> None:
         cwd=REMOTE_REPO,
     )
 
-    if os.environ.get("ORALPATH_FULL_STAGE1") == "1":
+    if os.environ.get("ORALPATH_FULL_STAGE1") == "1" or FULL_STAGE1_FLAG.exists():
         run(
             [
                 sys.executable,

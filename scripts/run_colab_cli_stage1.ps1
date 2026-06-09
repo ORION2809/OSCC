@@ -9,6 +9,7 @@ $RepoWsl = (wsl -d Ubuntu -- bash -lc "wslpath -a '$($RepoWin -replace '\\','\\'
 $Session = "oralpath-stage1"
 $KaggleWin = Join-Path $HOME ".kaggle\kaggle.json"
 $HfTokenWin = Join-Path $env:TEMP "oralpath_hf_token.secret"
+$FullFlagWin = Join-Path $env:TEMP "oralpath_full_stage1.flag"
 
 function Invoke-WslColab {
     param(
@@ -60,10 +61,19 @@ if ($env:HF_TOKEN) {
 } else {
     Write-Host "[5/7] HF_TOKEN is not set locally; UNI may fall back if gated."
 }
+if ($FullTraining) {
+    Set-Content -Path $FullFlagWin -Value "1" -NoNewline -Encoding ascii
+    $FullFlagWsl = (wsl -d Ubuntu -- bash -lc "wslpath -a '$($FullFlagWin -replace '\\','\\')'").Trim()
+    try {
+        Write-Host "[5/7] Uploading full-training flag..."
+        Invoke-WslColab "source ~/.local/bin/env && colab --auth=adc upload -s $Session '$FullFlagWsl' /content/full_stage1.flag"
+    } finally {
+        Remove-Item -LiteralPath $FullFlagWin -Force -ErrorAction SilentlyContinue
+    }
+}
 
 Write-Host "[6/7] Running Stage 1 remote job..."
-$full = if ($FullTraining) { "ORALPATH_FULL_STAGE1=1 " } else { "" }
-Invoke-WslColab "source ~/.local/bin/env && cd '$RepoWsl' && ${full}colab --auth=adc exec -s $Session --timeout 7200 -f scripts/colab_cli_stage1_job.py"
+Invoke-WslColab "source ~/.local/bin/env && cd '$RepoWsl' && colab --auth=adc exec -s $Session --timeout 7200 -f scripts/colab_cli_stage1_job.py"
 
 Write-Host "[7/7] Downloading reports/checkpoints if present..."
 New-Item -ItemType Directory -Force -Path (Join-Path $RepoWin "model\evaluation\reports\colab_cli") | Out-Null
