@@ -67,8 +67,12 @@ def configure_kaggle_from_colab_secret() -> None:
     except Exception:
         return
 
-    username = userdata.get("KAGGLE_USERNAME")
-    key = userdata.get("KAGGLE_KEY")
+    try:
+        username = userdata.get("KAGGLE_USERNAME")
+        key = userdata.get("KAGGLE_KEY")
+    except Exception as exc:
+        print(f"[INFO] Colab secrets unavailable in this runtime path: {exc}", flush=True)
+        return
     if not username or not key:
         return
 
