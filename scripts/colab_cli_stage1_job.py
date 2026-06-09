@@ -21,6 +21,7 @@ from pathlib import Path
 REPO_URL = "https://github.com/ORION2809/OSCC.git"
 REMOTE_REPO = Path("/content/oralpath")
 KAGGLE_UPLOAD = Path("/content/kaggle.json")
+HF_TOKEN_UPLOAD = Path("/content/hf_token.secret")
 
 
 def run(command: list[str], cwd: Path | None = None) -> None:
@@ -62,6 +63,21 @@ def configure_kaggle() -> None:
     target.write_text(json.dumps({"username": data["username"], "key": data["key"]}), encoding="utf-8")
     target.chmod(0o600)
     print(f"[OK] Kaggle credentials configured for {data['username']}", flush=True)
+
+
+def configure_huggingface() -> None:
+    if not HF_TOKEN_UPLOAD.exists():
+        print("[INFO] No Hugging Face token uploaded; gated backbones may fall back.", flush=True)
+        return
+
+    token = HF_TOKEN_UPLOAD.read_text(encoding="utf-8").strip()
+    if not token:
+        print("[INFO] Uploaded Hugging Face token file is empty.", flush=True)
+        return
+
+    os.environ["HF_TOKEN"] = token
+    os.environ["HUGGING_FACE_HUB_TOKEN"] = token
+    print("[OK] Hugging Face token configured for gated model access.", flush=True)
 
 
 def clone_or_update_repo() -> None:
@@ -123,6 +139,7 @@ def run_stage1() -> None:
 def main() -> int:
     disk("start")
     configure_kaggle()
+    configure_huggingface()
     clone_or_update_repo()
     install_dependencies()
     run_stage1()

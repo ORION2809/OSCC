@@ -8,6 +8,7 @@ $RepoWin = (Resolve-Path "$PSScriptRoot\..").Path
 $RepoWsl = (wsl -d Ubuntu -- bash -lc "wslpath -a '$($RepoWin -replace '\\','\\')'").Trim()
 $Session = "oralpath-stage1"
 $KaggleWin = Join-Path $HOME ".kaggle\kaggle.json"
+$HfTokenWin = Join-Path $env:TEMP "oralpath_hf_token.secret"
 
 function Invoke-WslColab {
     param(
@@ -47,6 +48,18 @@ Write-Host "[4/7] Remote package install is handled inside the job..."
 
 Write-Host "[5/7] Uploading Kaggle credentials..."
 Invoke-WslColab "source ~/.local/bin/env && colab --auth=adc upload -s $Session /mnt/c/Users/ShreyasSuvarna/.kaggle/kaggle.json /content/kaggle.json"
+if ($env:HF_TOKEN) {
+    Set-Content -Path $HfTokenWin -Value $env:HF_TOKEN -NoNewline -Encoding ascii
+    $HfTokenWsl = (wsl -d Ubuntu -- bash -lc "wslpath -a '$($HfTokenWin -replace '\\','\\')'").Trim()
+    try {
+        Write-Host "[5/7] Uploading Hugging Face token..."
+        Invoke-WslColab "source ~/.local/bin/env && colab --auth=adc upload -s $Session '$HfTokenWsl' /content/hf_token.secret"
+    } finally {
+        Remove-Item -LiteralPath $HfTokenWin -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    Write-Host "[5/7] HF_TOKEN is not set locally; UNI may fall back if gated."
+}
 
 Write-Host "[6/7] Running Stage 1 remote job..."
 $full = if ($FullTraining) { "ORALPATH_FULL_STAGE1=1 " } else { "" }
