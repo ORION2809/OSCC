@@ -25,7 +25,18 @@ KAGGLE_UPLOAD = Path("/content/kaggle.json")
 
 def run(command: list[str], cwd: Path | None = None) -> None:
     print("[RUN]", " ".join(command), flush=True)
-    subprocess.run(command, cwd=str(cwd) if cwd else None, check=True)
+    completed = subprocess.run(
+        command,
+        cwd=str(cwd) if cwd else None,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.stdout:
+        print(completed.stdout, flush=True)
+    if completed.stderr:
+        print(completed.stderr, flush=True)
+    completed.check_returncode()
 
 
 def disk(label: str) -> None:
