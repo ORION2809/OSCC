@@ -45,6 +45,13 @@ if ($sessionList -match [regex]::Escape($Session)) {
     Invoke-WslColab "source ~/.local/bin/env && colab --auth=$ColabAuth new -s $Session --gpu T4"
 }
 Invoke-WslColab "source ~/.local/bin/env && colab --auth=$ColabAuth status -s $Session"
+$sessionUrl = (wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth url -s $Session").Trim()
+if ($sessionUrl -match "^https?://") {
+    Write-Host "[3/7] Opening Colab session URL in browser for runtime keepalive..."
+    Start-Process $sessionUrl
+} else {
+    Write-Host "[3/7] Could not get browser URL for Colab session."
+}
 
 Write-Host "[4/7] Remote package install is handled inside the job..."
 
