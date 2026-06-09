@@ -270,7 +270,9 @@ def main():
     parser.add_argument("--config", type=str, default="model/training/stage1_detection/config.yaml")
     parser.add_argument("--dry-run", action="store_true", help="Print config and exit")
     parser.add_argument("--max-batches", type=int, default=None, help="Limit batches per split for smoke tests")
-    parser.add_argument("--max-epochs", type=int, default=None, help="Limit epochs for smoke tests")
+    parser.add_argument("--max-epochs", type=int, default=None, help="Limit epochs for this run")
+    parser.add_argument("--resume-state", type=str, default=None, help="Resume from a head-only training state")
+    parser.add_argument("--state-output", type=str, default=None, help="Write head-only training state after each epoch")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -320,15 +322,33 @@ def main():
 
     best_auc = -1.0
     best_path = checkpoint_dir / "stage1_best.pt"
+    state_path = Path(args.state_output) if args.state_output else checkpoint_dir / "stage1_last.pt"
     history = []
     patience = int(config["training"]["early_stopping_patience"])
     stale_epochs = 0
+    start_epoch = 1
 
-    epoch_count = int(config["training"]["epochs"])
+    if args.resume_state:
+        resume_path = Path(args.resume_state)
+        if resume_path.exists():
+            state = torch.load(resume_path, map_location=device)
+            model.head.load_state_dict(state["head_state_dict"])
+            optimizer.load_state_dict(state["optimizer_state_dict"])
+            scheduler.load_state_dict(state["scheduler_state_dict"])
+            best_auc = float(state.get("best_auc", best_auc))
+            history = list(state.get("history", []))
+            stale_epochs = int(state.get("stale_epochs", 0))
+            start_epoch = int(state["epoch"]) + 1
+            print(f"[RESUME] Loaded {resume_path}; next epoch: {start_epoch}", flush=True)
+        else:
+            print(f"[RESUME] State file not found, starting fresh: {resume_path}", flush=True)
+
+    configured_epochs = int(config["training"]["epochs"])
+    epoch_count = configured_epochs
     if args.max_epochs is not None:
-        epoch_count = min(epoch_count, args.max_epochs)
+        epoch_count = min(epoch_count, start_epoch + args.max_epochs - 1)
 
-    for epoch in range(1, epoch_count + 1):
+    for epoch in range(start_epoch, epoch_count + 1):
         train_loss = train_one_epoch(
             model,
             loaders["train"],
@@ -372,9 +392,27 @@ def main():
             )
         else:
             stale_epochs += 1
-            if stale_epochs >= patience:
-                print(f"Early stopping after {epoch} epochs.", flush=True)
-                break
+
+        torch.save(
+            {
+                "head_state_dict": model.head.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "config": config,
+                "epoch": epoch,
+                "best_auc": best_auc,
+                "history": history,
+                "stale_epochs": stale_epochs,
+                "backbone_requested": config["model"]["backbone"],
+                "backbone_actual": model.actual_backbone_name,
+            },
+            state_path,
+        )
+        print(f"[STATE] Saved resumable state: {state_path}", flush=True)
+
+        if stale_epochs >= patience:
+            print(f"Early stopping after {epoch} epochs.", flush=True)
+            break
 
     test_metrics = evaluate(model, loaders["test"], criterion, device, args.max_batches)
     report = {

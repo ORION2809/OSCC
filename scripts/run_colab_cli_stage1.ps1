@@ -13,6 +13,7 @@ $KaggleWin = Join-Path $HOME ".kaggle\kaggle.json"
 $HfTokenWin = Join-Path $env:TEMP "oralpath_hf_token.secret"
 $FullFlagWin = Join-Path $env:TEMP "oralpath_full_stage1.flag"
 $FullEpochsWin = Join-Path $env:TEMP "oralpath_full_stage1_epochs.txt"
+$ResumeStateWin = Join-Path $RepoWin "model\evaluation\reports\colab_cli\stage1_last.pt"
 
 function Invoke-WslColab {
     param(
@@ -90,6 +91,11 @@ if ($FullTraining) {
             Remove-Item -LiteralPath $FullEpochsWin -Force -ErrorAction SilentlyContinue
         }
     }
+    if (Test-Path $ResumeStateWin) {
+        $ResumeStateWsl = (wsl -d Ubuntu -- bash -lc "wslpath -a '$($ResumeStateWin -replace '\\','\\')'").Trim()
+        Write-Host "[5/7] Uploading resumable Stage 1 state..."
+        Invoke-WslColab "source ~/.local/bin/env && colab --auth=$ColabAuth upload -s $Session '$ResumeStateWsl' /content/stage1_resume.pt"
+    }
 }
 
 Write-Host "[6/7] Running Stage 1 remote job..."
@@ -99,6 +105,7 @@ Write-Host "[7/7] Downloading reports/checkpoints if present..."
 New-Item -ItemType Directory -Force -Path (Join-Path $RepoWin "model\evaluation\reports\colab_cli") | Out-Null
 wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/logs/stage1_report.json '$RepoWsl/model/evaluation/reports/colab_cli/stage1_report.json' || true"
 wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/checkpoints/stage1_best.pt '$RepoWsl/model/evaluation/reports/colab_cli/stage1_best.pt' || true"
+wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/checkpoints/stage1_last.pt '$RepoWsl/model/evaluation/reports/colab_cli/stage1_last.pt' || true"
 
 Write-Host "[DONE] Session is still running for inspection. Stop it with:"
 Write-Host "  wsl -d Ubuntu -- bash -lc `"source ~/.local/bin/env && colab --auth=$ColabAuth stop -s $Session`""
