@@ -1,6 +1,8 @@
 param(
     [switch]$FullTraining,
-    [int]$FullEpochs = 0
+    [int]$FullEpochs = 0,
+    [switch]$ChunkMode,
+    [switch]$DownloadBest
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,6 +15,7 @@ $KaggleWin = Join-Path $HOME ".kaggle\kaggle.json"
 $HfTokenWin = Join-Path $env:TEMP "oralpath_hf_token.secret"
 $FullFlagWin = Join-Path $env:TEMP "oralpath_full_stage1.flag"
 $FullEpochsWin = Join-Path $env:TEMP "oralpath_full_stage1_epochs.txt"
+$ChunkFlagWin = Join-Path $env:TEMP "oralpath_stage1_chunk.flag"
 $ResumeStateWin = Join-Path $RepoWin "model\evaluation\reports\colab_cli\stage1_last.pt"
 
 function Invoke-WslColab {
@@ -96,6 +99,16 @@ if ($FullTraining) {
         Write-Host "[5/7] Uploading resumable Stage 1 state..."
         Invoke-WslColab "source ~/.local/bin/env && colab --auth=$ColabAuth upload -s $Session '$ResumeStateWsl' /content/stage1_resume.pt"
     }
+    if ($ChunkMode) {
+        Set-Content -Path $ChunkFlagWin -Value "1" -NoNewline -Encoding ascii
+        $ChunkFlagWsl = (wsl -d Ubuntu -- bash -lc "wslpath -a '$($ChunkFlagWin -replace '\\','\\')'").Trim()
+        try {
+            Write-Host "[5/7] Uploading chunk-mode flag..."
+            Invoke-WslColab "source ~/.local/bin/env && colab --auth=$ColabAuth upload -s $Session '$ChunkFlagWsl' /content/stage1_chunk_mode.flag"
+        } finally {
+            Remove-Item -LiteralPath $ChunkFlagWin -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Write-Host "[6/7] Running Stage 1 remote job..."
@@ -115,7 +128,11 @@ Write-Host "[7/7] Downloading reports/checkpoints if present..."
 New-Item -ItemType Directory -Force -Path (Join-Path $RepoWin "model\evaluation\reports\colab_cli") | Out-Null
 wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/logs/stage1_report.json '$RepoWsl/model/evaluation/reports/colab_cli/stage1_report.json' || true"
 wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/checkpoints/stage1_last.pt '$RepoWsl/model/evaluation/reports/colab_cli/stage1_last.pt' || true"
-wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/checkpoints/stage1_best.pt '$RepoWsl/model/evaluation/reports/colab_cli/stage1_best.pt' || true"
+if ($DownloadBest) {
+    wsl -d Ubuntu -- bash -lc "source ~/.local/bin/env && colab --auth=$ColabAuth download -s $Session /content/oralpath/model/training/stage1_detection/checkpoints/stage1_best.pt '$RepoWsl/model/evaluation/reports/colab_cli/stage1_best.pt' || true"
+} else {
+    Write-Host "[7/7] Skipping full stage1_best.pt download. Use -DownloadBest when needed."
+}
 
 Write-Host "[DONE] Session is still running for inspection. Stop it with:"
 Write-Host "  wsl -d Ubuntu -- bash -lc `"source ~/.local/bin/env && colab --auth=$ColabAuth stop -s $Session`""

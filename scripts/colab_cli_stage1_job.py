@@ -25,6 +25,8 @@ HF_TOKEN_UPLOAD = Path("/content/hf_token.secret")
 FULL_STAGE1_FLAG = Path("/content/full_stage1.flag")
 FULL_STAGE1_EPOCHS = Path("/content/full_stage1_epochs.txt")
 STAGE1_RESUME_STATE = Path("/content/stage1_resume.pt")
+STAGE1_CHUNK_MODE = Path("/content/stage1_chunk_mode.flag")
+DEPS_MARKER = Path("/content/oralpath_deps_installed.flag")
 
 
 def run(command: list[str], cwd: Path | None = None) -> None:
@@ -98,37 +100,45 @@ def clone_or_update_repo() -> None:
 
 
 def install_dependencies() -> None:
+    if DEPS_MARKER.exists():
+        print("[SKIP] Dependencies already installed for this Colab session.", flush=True)
+        return
+
     run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
     run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], cwd=REMOTE_REPO)
+    DEPS_MARKER.write_text("ok\n", encoding="utf-8")
 
 
 def run_stage1() -> None:
     run([sys.executable, "scripts/colab_runtime_check.py"], cwd=REMOTE_REPO)
     run([sys.executable, "scripts/setup_colab_ephemeral_data.py", "--stage", "stage1"], cwd=REMOTE_REPO)
     run([sys.executable, "scripts/verify_datasets.py"], cwd=REMOTE_REPO)
-    run(
-        [
-            sys.executable,
-            "model/training/stage1_detection/train.py",
-            "--config",
-            "model/training/stage1_detection/config.yaml",
-            "--dry-run",
-        ],
-        cwd=REMOTE_REPO,
-    )
-    run(
-        [
-            sys.executable,
-            "model/training/stage1_detection/train.py",
-            "--config",
-            "model/training/stage1_detection/config.yaml",
-            "--max-batches",
-            "1",
-            "--max-epochs",
-            "1",
-        ],
-        cwd=REMOTE_REPO,
-    )
+    if STAGE1_CHUNK_MODE.exists():
+        print("[SKIP] Chunk mode enabled; skipping dry-run and smoke train.", flush=True)
+    else:
+        run(
+            [
+                sys.executable,
+                "model/training/stage1_detection/train.py",
+                "--config",
+                "model/training/stage1_detection/config.yaml",
+                "--dry-run",
+            ],
+            cwd=REMOTE_REPO,
+        )
+        run(
+            [
+                sys.executable,
+                "model/training/stage1_detection/train.py",
+                "--config",
+                "model/training/stage1_detection/config.yaml",
+                "--max-batches",
+                "1",
+                "--max-epochs",
+                "1",
+            ],
+            cwd=REMOTE_REPO,
+        )
 
     if os.environ.get("ORALPATH_FULL_STAGE1") == "1" or FULL_STAGE1_FLAG.exists():
         command = [

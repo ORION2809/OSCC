@@ -50,12 +50,21 @@ while ($true) {
     $NextEpoch = $CurrentEpoch + 1
     $LogPath = Join-Path $LogDir ("stage1_chunk_epoch_{0:D2}.log" -f $NextEpoch)
     Write-Host "[CHUNK] Running Stage 1 epoch $NextEpoch / $TargetEpoch"
-    & "$PSScriptRoot\run_colab_cli_stage1.ps1" -FullTraining -FullEpochs 1 *> $LogPath
+    & "$PSScriptRoot\run_colab_cli_stage1.ps1" -FullTraining -FullEpochs 1 -ChunkMode *> $LogPath
 
     $AfterEpoch = Get-Stage1Epoch
     if ($AfterEpoch -lt $NextEpoch) {
         throw "Stage 1 did not advance to epoch $NextEpoch. Current state epoch: $AfterEpoch. See $LogPath"
     }
+
+    $Progress = @{
+        current_epoch = $AfterEpoch
+        target_epoch = $TargetEpoch
+        remaining_epochs = [Math]::Max(0, $TargetEpoch - $AfterEpoch)
+        last_log = $LogPath
+        updated_at = (Get-Date).ToString("o")
+    }
+    $Progress | ConvertTo-Json | Set-Content -Path (Join-Path $LogDir "stage1_training_progress.json") -Encoding utf8
 
     $ChunksRun += 1
 }
