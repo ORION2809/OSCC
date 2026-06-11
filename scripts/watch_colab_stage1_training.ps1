@@ -12,6 +12,9 @@ $RunnerScript = Join-Path $RepoWin "scripts\run_colab_cli_stage1_chunks.ps1"
 $RunnerLog = Join-Path $LogDir "stage1_chunks_to_50_runner.log"
 $WatchdogLog = Join-Path $LogDir "stage1_watchdog.log"
 $HfTokenPath = Join-Path $HOME ".cache\huggingface\token"
+$LastEpochSeen = -1
+$UnchangedChecks = 0
+$MaxUnchangedChecks = 3
 
 function Write-WatchdogLog {
     param([string]$Message)
@@ -35,7 +38,6 @@ function Get-Stage1Epoch {
 }
 
 function Get-RunnerProcess {
-    $EscapedScript = $RunnerScript.Replace("\", "\\")
     Get-CimInstance Win32_Process |
         Where-Object {
             $_.Name -ieq "powershell.exe" -and
@@ -43,6 +45,20 @@ function Get-RunnerProcess {
             $_.CommandLine -notlike "*watch_colab_stage1_training.ps1*"
         } |
         Select-Object -First 1
+}
+
+function Stop-RunnerTree {
+    param([uint32]$RootPid)
+
+    $Children = Get-CimInstance Win32_Process |
+        Where-Object { $_.ParentProcessId -eq $RootPid } |
+        Select-Object -ExpandProperty ProcessId
+
+    foreach ($ChildPid in $Children) {
+        Stop-RunnerTree -RootPid $ChildPid
+    }
+
+    Stop-Process -Id $RootPid -Force -ErrorAction SilentlyContinue
 }
 
 function Start-Runner {
@@ -69,10 +85,27 @@ while ($true) {
 
         $Runner = Get-RunnerProcess
         if ($Runner) {
-            Write-WatchdogLog "Runner alive PID=$($Runner.ProcessId). Current epoch=$Epoch / $TargetEpoch."
+            if ($Epoch -eq $LastEpochSeen) {
+                $UnchangedChecks += 1
+            } else {
+                $UnchangedChecks = 0
+                $LastEpochSeen = $Epoch
+            }
+
+            Write-WatchdogLog "Runner alive PID=$($Runner.ProcessId). Current epoch=$Epoch / $TargetEpoch. UnchangedChecks=$UnchangedChecks."
+
+            if ($UnchangedChecks -ge $MaxUnchangedChecks) {
+                Write-WatchdogLog "Epoch unchanged for $UnchangedChecks checks. Restarting runner tree PID=$($Runner.ProcessId)."
+                Stop-RunnerTree -RootPid $Runner.ProcessId
+                Start-Sleep -Seconds 5
+                Start-Runner
+                $UnchangedChecks = 0
+            }
         } else {
             Write-WatchdogLog "Runner not found at epoch $Epoch / $TargetEpoch. Restarting."
             Start-Runner
+            $LastEpochSeen = $Epoch
+            $UnchangedChecks = 0
         }
     } catch {
         Write-WatchdogLog "Watchdog error: $($_.Exception.Message)"
