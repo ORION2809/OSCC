@@ -4,6 +4,7 @@ Shared dataset loading utilities for Kaggle OSCC and ORCHID datasets.
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -18,9 +19,12 @@ class DatasetManifest:
         with open(manifest_path, "r") as f:
             self.config = json.load(f)
         self.name = self.config["name"]
-        self.local_path = Path(self.config["local_path"])
+        override_env = self.config.get("local_path_env")
+        override_path = os.environ.get(override_env) if override_env else None
+        self.local_path = Path(override_path or self.config["local_path"])
         self.classes = self.config["classes"]
         self.class_aliases = self.config.get("class_aliases", {})
+        self.explicit_split_dirs = self.config.get("explicit_split_dirs", {})
         self.split_ratio = self.config["split"]
         self.seed = self.config["seed"]
 
@@ -50,13 +54,38 @@ class DatasetManifest:
             if cls_dir is None:
                 continue
             for ext in ("*.jpg", "*.jpeg", "*.png", "*.tif", "*.tiff"):
-                for fp in cls_dir.glob(ext):
+                for fp in cls_dir.rglob(ext):
                     samples.append((str(fp), label_idx))
         return samples
 
     def has_explicit_splits(self) -> bool:
         """Return true when dataset is already organized as train/val/test."""
-        return all((self.local_path / split).exists() for split in ("train", "val", "test"))
+        return all(self._resolve_split_dir(split) is not None for split in ("train", "val", "test"))
+
+    def _resolve_split_dir(self, split: str) -> Path | None:
+        configured = self.explicit_split_dirs.get(split)
+        if configured:
+            path = self.local_path / configured
+            if path.exists():
+                return path
+
+        candidates = [
+            self.local_path / split,
+            self.local_path / f"ORCHID_{split}" / split,
+        ]
+        if split == "val":
+            candidates.extend(
+                [
+                    self.local_path / "validation",
+                    self.local_path / "ORCHID_val" / "val",
+                    self.local_path / "ORCHID_validation" / "validation",
+                ]
+            )
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
 
     def validate(self) -> bool:
         """Check that expected directories and files exist."""
@@ -66,7 +95,7 @@ class DatasetManifest:
 
         bases = [self.local_path]
         if self.has_explicit_splits():
-            bases = [self.local_path / split for split in ("train", "val", "test")]
+            bases = [self._resolve_split_dir(split) for split in ("train", "val", "test")]
 
         valid = True
         for base_dir in bases:
@@ -89,7 +118,7 @@ class DatasetManifest:
         """
         if self.has_explicit_splits():
             splits = {
-                split: self._load_samples_from_dir(self.local_path / split)
+                split: self._load_samples_from_dir(self._resolve_split_dir(split))
                 for split in ("train", "val", "test")
             }
             if not any(splits.values()):

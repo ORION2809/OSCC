@@ -62,10 +62,12 @@ class Stage2GradingModel(nn.Module if nn is not None else object):
         head_hidden_dim: int = 512,
         dropout: float = 0.3,
         num_classes: int = 5,
+        allow_backbone_fallback: bool = True,
     ):
         super().__init__()
         require_torch()
         self.backbone_name = backbone_name
+        self.allow_backbone_fallback = allow_backbone_fallback
         self.backbone, self.feature_dim, self.actual_backbone_name = self._load_backbone(backbone_name)
 
         if freeze_backbone and self.backbone is not None:
@@ -96,11 +98,15 @@ class Stage2GradingModel(nn.Module if nn is not None else object):
                 model = AutoModel.from_pretrained("mahmoodlab/UNI", trust_remote_code=True)
                 return model, 1024, "uni"
             except Exception as exc:
+                if not self.allow_backbone_fallback:
+                    raise RuntimeError("Could not load UNI and backbone fallback is disabled.") from exc
                 print(f"[WARN] Could not load UNI: {exc}")
                 print("[WARN] Falling back to EfficientNetB3")
                 return self._load_backbone("efficientnetb3")
 
         if name == "ctranspath":
+            if not self.allow_backbone_fallback:
+                raise RuntimeError("CTransPath loading is not implemented and backbone fallback is disabled.")
             print("[WARN] CTransPath not yet loaded. Using EfficientNetB3 placeholder.")
             return self._load_backbone("efficientnetb3")
 
@@ -381,6 +387,7 @@ def main():
         head_hidden_dim=int(config["model"]["head_hidden_dim"]),
         dropout=float(config["model"]["dropout"]),
         num_classes=int(config["model"]["num_classes"]),
+        allow_backbone_fallback=bool(config["model"].get("allow_backbone_fallback", True)),
     ).to(device)
 
     class_weights = None

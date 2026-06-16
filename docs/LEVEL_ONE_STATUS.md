@@ -29,16 +29,37 @@ used as the Level 1 product gate.
 - The default is `weighted_loss` because the current ORCHID train max/min ratio
   is 2.67.
 
-### Colab Automation
+### Kaggle Training Runtime
+
+Kaggle is now the preferred runtime for full Stage 2 training because the ORCHID
+dataset is already mirrored there and can be attached directly:
+
+```text
+nazmulxdxd/orchid-oscc-classification
+```
+
+Added:
+
+- `model/kaggle/stage2_orchid_level1/kernel-metadata.json`
+- `model/kaggle/stage2_orchid_level1/stage2_orchid_level1.py`
+- `model/data/manifests/orchid_kaggle.json`
+- `model/training/stage2_grading/config.kaggle.yaml`
+- `scripts/run_kaggle_stage2.ps1`
+- `scripts/kaggle_stage2_status.ps1`
+- `scripts/download_kaggle_stage2_outputs.ps1`
+
+The Kaggle runner requires a Kaggle secret named `HF_TOKEN` so UNI loads
+correctly. Backbone fallback is disabled in the Kaggle config.
+
+### Colab Automation Fallback
 
 - `scripts/colab_cli_stage2_job.py`
 - `scripts/run_colab_cli_stage2.ps1`
 - `scripts/run_colab_cli_stage2_chunks.ps1`
 - `scripts/watch_colab_stage2_training.ps1`
 
-The Colab path uses temporary `/content` storage, downloads ORCHID only when
-needed, resumes from `stage2_last.pt`, and downloads the report plus resumable
-state after each chunk.
+The Colab path is retained as a fallback. It stalled on the ORCHID Zenodo
+download and should not be the first choice for full Stage 2 training.
 
 ### Inference Contract
 
@@ -73,10 +94,10 @@ Reason: `pytest` is not installed in the local venv.
 
 ## Next Step
 
-Start full Stage 2 training with the watchdog:
+Start full Stage 2 training on Kaggle:
 
 ```powershell
-.\scripts\watch_colab_stage2_training.ps1 -TargetEpoch 50 -CheckSeconds 300
+.\scripts\run_kaggle_stage2.ps1
 ```
 
 Review validation macro F1, OSMF recall, and per-class F1 at epochs 5, 10, 15,

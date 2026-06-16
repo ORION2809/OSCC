@@ -1,0 +1,44 @@
+{
+  "name": "ORCHID Kaggle",
+  "source": "nazmulxdxd/orchid-oscc-classification",
+  "license": "CC BY 4.0",
+  "citation": "NishaChaudhary23 et al. (2024); Kaggle mirror by nazmulxdxd",
+  "local_path": "/kaggle/input/orchid-oscc-classification",
+  "local_path_env": "ORALPATH_ORCHID_ROOT",
+  "expected_structure": {
+    "normal": "*.png",
+    "osmf": "*.png",
+    "wd": "*.png",
+    "md": "*.png",
+    "pd": "*.png"
+  },
+  "classes": {
+    "normal": 0,
+    "osmf": 1,
+    "wd": 2,
+    "md": 3,
+    "pd": 4
+  },
+  "class_aliases": {
+    "wd": ["wdoscc"],
+    "md": ["mdoscc"],
+    "pd": ["pdoscc"]
+  },
+  "explicit_split_dirs": {
+    "train": "ORCHID_train/train",
+    "val": "ORCHID_val/val",
+    "test": "ORCHID_test/test"
+  },
+  "split": {
+    "train": 0.70,
+    "val": 0.15,
+    "test": 0.15
+  },
+  "seed": 42,
+  "preprocessing": {
+    "target_size": [224, 224],
+    "normalize": true,
+    "stain_norm": "macenko",
+    "augmentation": ["flip", "rotation", "color_jitter"]
+  }
+}

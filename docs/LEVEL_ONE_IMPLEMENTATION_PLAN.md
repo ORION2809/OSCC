@@ -71,12 +71,14 @@ Already present:
 - Colab CLI + Hugging Face + Kaggle credential path already proven
 - Robust resumable Colab pattern from Stage 1
 
-Important mismatch:
+Runtime update:
 
-- Stage 1 has resumable chunk training.
-- Stage 2 does not yet have resumable chunk training.
+- Stage 1 used resumable Colab chunk training.
+- Stage 2 should now use Kaggle as the primary full-training runtime.
+- The ORCHID dataset is already mirrored on Kaggle as `nazmulxdxd/orchid-oscc-classification`.
+- Colab remains a fallback, but the Zenodo ORCHID download path stalled before training began.
 
-So the first Level 1 implementation task is not app UI. It is making Stage 2 trainable/restartable under the same unreliable Colab conditions.
+So the first Level 1 implementation task is not app UI. It is making Stage 2 train reliably on Kaggle with direct ORCHID dataset attachment.
 
 Important training risk:
 
@@ -168,36 +170,35 @@ Epoch 012 batch 50/...
 
 Acceptance gate:
 
-- The Colab log clearly shows whether training is active or stale.
+- The training log clearly shows whether training is active or stale.
 
-## Workstream 3: Stage 2 Colab Automation
+## Workstream 3: Stage 2 Kaggle Automation
 
-### Task 3.1: Create Stage 2 Colab Job
+### Task 3.1: Create Stage 2 Kaggle Job
 
 Create:
 
 ```text
-scripts/colab_cli_stage2_job.py
-scripts/run_colab_cli_stage2.ps1
-scripts/run_colab_cli_stage2_chunks.ps1
-scripts/watch_colab_stage2_training.ps1
+model/kaggle/stage2_orchid_level1/kernel-metadata.json
+model/kaggle/stage2_orchid_level1/stage2_orchid_level1.py
+scripts/run_kaggle_stage2.ps1
+scripts/kaggle_stage2_status.ps1
+scripts/download_kaggle_stage2_outputs.ps1
 ```
 
-Use the Stage 1 pattern:
+Use the Kaggle pattern:
 
-- upload Hugging Face token
-- clone/update repo on Colab
-- install dependencies once per session
-- verify ORCHID dataset
-- upload `stage2_last.pt` when present
-- run exactly one resumable epoch per chunk
-- download `stage2_report.json` and `stage2_last.pt`
-- skip huge full checkpoint download except at final export time
-- watchdog restarts stale runners
+- attach `nazmulxdxd/orchid-oscc-classification`
+- clone/update repo inside the Kaggle kernel
+- load Hugging Face token from Kaggle secret `HF_TOKEN`
+- use `model/training/stage2_grading/config.kaggle.yaml`
+- disable backbone fallback so UNI failures are visible
+- run full Stage 2 training as one background kernel job
+- save `stage2_report.json`, `stage2_last.pt`, and `stage2_best.pt` as Kaggle outputs
 
 Acceptance gate:
 
-- `run_colab_cli_stage2_chunks.ps1 -TargetEpoch 50` can survive Colab pruning and advance one epoch at a time.
+- `run_kaggle_stage2.ps1` submits the kernel, `kaggle_stage2_status.ps1` shows it running, and `download_kaggle_stage2_outputs.ps1` retrieves the report/checkpoints after completion.
 
 ## Workstream 4: Train Level 1 Model
 
@@ -249,10 +250,10 @@ Acceptance gate:
 
 ### Task 4.2: Full Stage 2 Training
 
-Run chunked Colab training:
+Run Kaggle training:
 
 ```powershell
-.\scripts\run_colab_cli_stage2_chunks.ps1 -TargetEpoch 50
+.\scripts\run_kaggle_stage2.ps1
 ```
 
 Do not treat 50 epochs as mandatory. With UNI/CTransPath frozen, only the classification head is learning, so useful convergence may happen around epoch 15-20.
@@ -262,7 +263,7 @@ Training policy:
 - Review validation macro F1, OSMF recall, and per-class F1 after epochs 5, 10, 15, and 20.
 - Stop early if validation macro F1 has clearly plateaued and per-class recall is stable.
 - Continue toward 50 only if the validation curve is still improving or if minority-class recall is still recovering.
-- Keep early stopping enabled so chunked Colab training does not blindly burn runtime.
+- Keep early stopping enabled so Kaggle GPU time is not wasted after convergence.
 
 Primary metric:
 
@@ -403,7 +404,7 @@ Do not include Stage 1 output unless explicitly added later as supporting signal
 
 1. Let Stage 1 finish in background.
 2. Add Stage 2 resumable training.
-3. Add Stage 2 Colab automation/watchdog.
+3. Add Stage 2 Kaggle automation.
 4. Run Stage 2 smoke test.
 5. Train Stage 2 to completion.
 6. Evaluate per-class quality.

@@ -1,0 +1,61 @@
+# OralPath -- Stage 2 Grading Training Config for Kaggle
+# Five-class classification: normal / OSMF / WD / MD / PD
+
+experiment_name: "stage2_grading_v1_kaggle"
+seed: 42
+
+dataset:
+  manifest: "model/data/manifests/orchid_kaggle.json"
+  target_size: [224, 224]
+  batch_size: 32
+  num_workers: 2
+  stain_norm: "macenko"
+
+model:
+  backbone: "uni"
+  freeze_backbone: true
+  head_hidden_dim: 512
+  dropout: 0.3
+  num_classes: 5
+  allow_backbone_fallback: false
+
+training:
+  epochs: 50
+  optimizer: "adamw"
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  scheduler: "cosine"
+  warmup_epochs: 5
+  label_smoothing: 0.1
+  early_stopping_patience: 10
+
+imbalance:
+  mode: "weighted_loss"
+  auto_enable_threshold: 2.0
+  weight_method: "inverse_frequency"
+
+augmentation:
+  horizontal_flip: true
+  vertical_flip: false
+  rotation_degrees: 15
+  color_jitter:
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.1
+    hue: 0.05
+  elastic_distortion: false
+
+evaluation:
+  metrics: ["accuracy", "weighted_f1", "macro_f1", "per_class_f1", "confusion_matrix"]
+  target_accuracy: 0.85
+  class_names: ["normal", "osmf", "wd", "md", "pd"]
+
+export:
+  onnx: true
+  tflite: false
+  output_dir: "/kaggle/working/stage2_export/"
+
+logging:
+  log_dir: "/kaggle/working/stage2_logs/"
+  checkpoint_dir: "/kaggle/working/stage2_checkpoints/"
+  save_best_only: true
