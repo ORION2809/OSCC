@@ -15,7 +15,7 @@ $HfTokenPath = Join-Path $HOME ".cache\huggingface\token"
 $LastEpochSeen = -1
 $LastActivitySeen = $null
 $UnchangedChecks = 0
-$MaxUnchangedChecks = 3
+$MaxUnchangedChecks = 12
 
 function Write-WatchdogLog {
     param([string]$Message)
