@@ -13,6 +13,7 @@ $RunnerLog = Join-Path $LogDir "stage2_chunks_to_50_runner.log"
 $WatchdogLog = Join-Path $LogDir "stage2_watchdog.log"
 $HfTokenPath = Join-Path $HOME ".cache\huggingface\token"
 $LastEpochSeen = -1
+$LastActivitySeen = $null
 $UnchangedChecks = 0
 $MaxUnchangedChecks = 3
 
@@ -72,6 +73,24 @@ function Start-Runner {
     Write-WatchdogLog "Started Stage 2 runner PID=$($Process.Id)"
 }
 
+function Get-RunnerActivityStamp {
+    $paths = @($RunnerLog)
+    $paths += Get-ChildItem -Path $LogDir -Filter "stage2_chunk_epoch_*.log" -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty FullName
+
+    $latest = $null
+    foreach ($path in $paths) {
+        if (-not (Test-Path $path)) {
+            continue
+        }
+        $item = Get-Item $path
+        if ($null -eq $latest -or $item.LastWriteTimeUtc -gt $latest) {
+            $latest = $item.LastWriteTimeUtc
+        }
+    }
+    return $latest
+}
+
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 Write-WatchdogLog "Watchdog started. TargetEpoch=$TargetEpoch CheckSeconds=$CheckSeconds"
 
@@ -85,14 +104,21 @@ while ($true) {
 
         $Runner = Get-RunnerProcess
         if ($Runner) {
-            if ($Epoch -eq $LastEpochSeen) {
+            $Activity = Get-RunnerActivityStamp
+            $ActivityChanged = $false
+            if ($null -ne $Activity -and $Activity -ne $LastActivitySeen) {
+                $ActivityChanged = $true
+                $LastActivitySeen = $Activity
+            }
+
+            if ($Epoch -eq $LastEpochSeen -and -not $ActivityChanged) {
                 $UnchangedChecks += 1
             } else {
                 $UnchangedChecks = 0
                 $LastEpochSeen = $Epoch
             }
 
-            Write-WatchdogLog "Runner alive PID=$($Runner.ProcessId). Current epoch=$Epoch / $TargetEpoch. UnchangedChecks=$UnchangedChecks."
+            Write-WatchdogLog "Runner alive PID=$($Runner.ProcessId). Current epoch=$Epoch / $TargetEpoch. LogActivityChanged=$ActivityChanged. UnchangedChecks=$UnchangedChecks."
 
             if ($UnchangedChecks -ge $MaxUnchangedChecks) {
                 Write-WatchdogLog "Epoch unchanged for $UnchangedChecks checks. Restarting runner tree PID=$($Runner.ProcessId)."
