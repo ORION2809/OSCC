@@ -18,8 +18,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "[2/3] Verifying ORCHID Kaggle dataset is visible..."
-& "$RepoWin\.venv\Scripts\python.exe" -m kaggle datasets files nazmulxdxd/orchid-oscc-classification | Select-Object -First 8
-if ($LASTEXITCODE -ne 0) {
+$DatasetOutput = & "$RepoWin\.venv\Scripts\python.exe" -m kaggle datasets files nazmulxdxd/orchid-oscc-classification 2>&1
+$DatasetExitCode = $LASTEXITCODE
+$DatasetOutput | Select-Object -First 8
+if ($DatasetExitCode -ne 0) {
     throw "Unable to access nazmulxdxd/orchid-oscc-classification. Check Kaggle account/dataset access."
 }
 
