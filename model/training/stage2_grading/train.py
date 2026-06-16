@@ -27,7 +27,7 @@ try:
     import torch
     import torch.nn as nn
     import torch.optim as optim
-    from torch.utils.data import DataLoader, Dataset
+    from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
     from torchvision import transforms
 except ModuleNotFoundError:
     torch = None
@@ -168,7 +168,36 @@ def get_transforms(config: dict, split: str = "train"):
     return transforms.Compose(transform_steps)
 
 
-def build_loaders(config: dict):
+def compute_class_distribution(splits: dict[str, list], class_names: list[str]) -> dict:
+    """Return sample counts per split and class, plus max/min train ratio."""
+    distribution = {}
+    for split_name, samples in splits.items():
+        counts = {name: 0 for name in class_names}
+        for _, label_idx in samples:
+            counts[class_names[label_idx]] += 1
+        distribution[split_name] = counts
+
+    train_counts = list(distribution["train"].values())
+    max_count = max(train_counts)
+    min_count = min(train_counts)
+    distribution["train_max_min_ratio"] = round(max_count / min_count, 3) if min_count > 0 else float("inf")
+    return distribution
+
+
+def build_class_weights(train_counts: dict[str, int], method: str = "inverse_frequency") -> torch.Tensor:
+    """Compute per-class weights for CrossEntropyLoss."""
+    counts = torch.tensor([train_counts[name] for name in train_counts], dtype=torch.float32)
+    if method == "effective_samples":
+        beta = 0.9999
+        effective_num = 1.0 - torch.pow(beta, counts)
+        weights = (1.0 - beta) / effective_num
+    else:
+        weights = 1.0 / counts
+    weights = weights / weights.sum() * len(weights)
+    return weights
+
+
+def build_loaders(config: dict, sampler: WeightedRandomSampler | None = None):
     require_torch()
     manifest = DatasetManifest(config["dataset"]["manifest"])
     splits = manifest.load_split()
@@ -176,10 +205,12 @@ def build_loaders(config: dict):
     num_workers = int(config["dataset"].get("num_workers", 0))
 
     return {
+        "splits": splits,
         "train": DataLoader(
             ImageSplitDataset(splits["train"], get_transforms(config, "train")),
             batch_size=batch_size,
-            shuffle=True,
+            shuffle=(sampler is None),
+            sampler=sampler,
             num_workers=num_workers,
         ),
         "val": DataLoader(
@@ -204,11 +235,19 @@ def iter_limited(loader, max_batches: int | None):
         yield batch
 
 
-def train_one_epoch(model, loader, criterion, optimizer, device, max_batches: int | None = None):
+def train_one_epoch(
+    model,
+    loader,
+    criterion,
+    optimizer,
+    device,
+    max_batches: int | None = None,
+    epoch: int | None = None,
+):
     model.train()
     losses = []
 
-    for images, targets in iter_limited(loader, max_batches):
+    for batch_index, (images, targets) in enumerate(iter_limited(loader, max_batches), start=1):
         images = images.to(device)
         targets = targets.to(device)
 
@@ -218,6 +257,14 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_batches: in
         loss.backward()
         optimizer.step()
         losses.append(float(loss.item()))
+
+        if batch_index == 1 or batch_index % 25 == 0:
+            prefix = f"Epoch {epoch:03d}" if epoch is not None else "Train"
+            print(
+                f"{prefix} batch {batch_index}/{len(loader)} "
+                f"loss={float(loss.item()):.4f}",
+                flush=True,
+            )
 
     return float(np.mean(losses)) if losses else 0.0
 
@@ -265,6 +312,9 @@ def main():
     parser.add_argument("--config", type=str, default="model/training/stage2_grading/config.yaml")
     parser.add_argument("--dry-run", action="store_true", help="Print config and dataset counts, then exit")
     parser.add_argument("--max-batches", type=int, default=None, help="Limit batches per split for smoke tests")
+    parser.add_argument("--max-epochs", type=int, default=None, help="Limit epochs for this run")
+    parser.add_argument("--resume-state", type=str, default=None, help="Resume from a head-only training state")
+    parser.add_argument("--state-output", type=str, default=None, help="Write head-only training state after each epoch")
     args = parser.parse_args()
 
     with open(args.config, "r", encoding="utf-8") as file:
@@ -278,18 +328,53 @@ def main():
     print(f"Dataset: {config['dataset']['manifest']}")
     print("=" * 50)
 
-    if args.dry_run:
-        print("\n[Dry run] Config loaded successfully.")
-        print(json.dumps(config, indent=2))
-        DatasetManifest(config["dataset"]["manifest"]).dry_run()
-        return
-
     require_torch()
     torch.manual_seed(int(config.get("seed", 42)))
     np.random.seed(int(config.get("seed", 42)))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    loaders = build_loaders(config)
+
+    # --- Dataset distribution preflight (Task 4.0) ---
+    manifest = DatasetManifest(config["dataset"]["manifest"])
+    splits = manifest.load_split()
+    class_distribution = compute_class_distribution(splits, class_names)
+
+    imbalance_cfg = config.get("imbalance", {})
+    imbalance_mode = imbalance_cfg.get("mode", "none")
+    auto_threshold = float(imbalance_cfg.get("auto_enable_threshold", 2.0))
+    max_min_ratio = class_distribution["train_max_min_ratio"]
+
+    if imbalance_mode == "auto":
+        imbalance_mode = "weighted_loss" if max_min_ratio > auto_threshold else "none"
+
+    print("\n[DATASET DISTRIBUTION]")
+    for split_name in ("train", "val", "test"):
+        counts = class_distribution[split_name]
+        line = "  " + split_name + ": " + " / ".join(f"{cls}={counts[cls]}" for cls in class_names)
+        print(line)
+    print(f"  train max/min ratio = {max_min_ratio:.3f}")
+    print(f"  imbalance handling = {imbalance_mode}")
+
+    if args.dry_run:
+        print("\n[Dry run] Config loaded successfully.")
+        print(json.dumps(config, indent=2))
+        manifest.dry_run()
+        return
+
+    sampler = None
+    train_labels = [label_idx for _, label_idx in splits["train"]]
+    if imbalance_mode == "weighted_sampler":
+        class_counts = [train_labels.count(idx) for idx in range(len(class_names))]
+        sample_weights = [1.0 / class_counts[idx] for idx in train_labels]
+        sampler = WeightedRandomSampler(
+            torch.tensor(sample_weights, dtype=torch.float64),
+            num_samples=len(train_labels),
+            replacement=True,
+        )
+        print("[IMBALANCE] Using WeightedRandomSampler.", flush=True)
+
+    loaders = build_loaders(config, sampler=sampler)
+
     model = Stage2GradingModel(
         backbone_name=config["model"]["backbone"],
         freeze_backbone=bool(config["model"]["freeze_backbone"]),
@@ -298,7 +383,16 @@ def main():
         num_classes=int(config["model"]["num_classes"]),
     ).to(device)
 
-    criterion = nn.CrossEntropyLoss(label_smoothing=float(config["training"].get("label_smoothing", 0.0)))
+    class_weights = None
+    if imbalance_mode == "weighted_loss":
+        class_weights = build_class_weights(class_distribution["train"], method=imbalance_cfg.get("weight_method", "inverse_frequency"))
+        class_weights = class_weights.to(device)
+        print(f"[IMBALANCE] Using weighted CrossEntropyLoss. weights={class_weights.cpu().tolist()}", flush=True)
+
+    criterion = nn.CrossEntropyLoss(
+        weight=class_weights,
+        label_smoothing=float(config["training"].get("label_smoothing", 0.0)),
+    )
     optimizer = optim.AdamW(
         [param for param in model.parameters() if param.requires_grad],
         lr=float(config["training"]["lr"]),
@@ -311,14 +405,44 @@ def main():
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    best_accuracy = -1.0
+    best_metric = -1.0
     best_path = checkpoint_dir / "stage2_best.pt"
+    state_path = Path(args.state_output) if args.state_output else checkpoint_dir / "stage2_last.pt"
     history = []
     stale_epochs = 0
     patience = int(config["training"]["early_stopping_patience"])
+    start_epoch = 1
 
-    for epoch in range(1, int(config["training"]["epochs"]) + 1):
-        train_loss = train_one_epoch(model, loaders["train"], criterion, optimizer, device, args.max_batches)
+    if args.resume_state:
+        resume_path = Path(args.resume_state)
+        if resume_path.exists():
+            state = torch.load(resume_path, map_location=device)
+            model.head.load_state_dict(state["head_state_dict"])
+            optimizer.load_state_dict(state["optimizer_state_dict"])
+            scheduler.load_state_dict(state["scheduler_state_dict"])
+            best_metric = float(state.get("best_metric", best_metric))
+            history = list(state.get("history", []))
+            stale_epochs = int(state.get("stale_epochs", 0))
+            start_epoch = int(state["epoch"]) + 1
+            print(f"[RESUME] Loaded {resume_path}; next epoch: {start_epoch}", flush=True)
+        else:
+            print(f"[RESUME] State file not found, starting fresh: {resume_path}", flush=True)
+
+    configured_epochs = int(config["training"]["epochs"])
+    epoch_count = configured_epochs
+    if args.max_epochs is not None:
+        epoch_count = min(epoch_count, start_epoch + args.max_epochs - 1)
+
+    for epoch in range(start_epoch, epoch_count + 1):
+        train_loss = train_one_epoch(
+            model,
+            loaders["train"],
+            criterion,
+            optimizer,
+            device,
+            args.max_batches,
+            epoch,
+        )
         val_metrics = evaluate(model, loaders["val"], criterion, device, class_names, args.max_batches)
         scheduler.step()
 
@@ -334,11 +458,14 @@ def main():
         print(
             f"Epoch {epoch:03d} | train_loss={train_loss:.4f} "
             f"val_acc={val_metrics['accuracy']:.4f} "
-            f"val_weighted_f1={val_metrics['weighted_f1']:.4f}"
+            f"val_macro_f1={val_metrics['macro_f1']:.4f} "
+            f"val_weighted_f1={val_metrics['weighted_f1']:.4f}",
+            flush=True,
         )
 
-        if val_metrics["accuracy"] > best_accuracy:
-            best_accuracy = val_metrics["accuracy"]
+        current_metric = float(val_metrics.get("macro_f1", val_metrics["accuracy"]))
+        if current_metric > best_metric:
+            best_metric = current_metric
             stale_epochs = 0
             torch.save(
                 {
@@ -347,19 +474,48 @@ def main():
                     "epoch": epoch,
                     "val_metrics": val_metrics,
                     "backbone_actual": model.actual_backbone_name,
+                    "class_names": class_names,
                 },
                 best_path,
             )
         else:
             stale_epochs += 1
-            if stale_epochs >= patience:
-                print(f"Early stopping after {epoch} epochs.")
-                break
+
+        torch.save(
+            {
+                "head_state_dict": model.head.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "config": config,
+                "epoch": epoch,
+                "best_metric": best_metric,
+                "history": history,
+                "stale_epochs": stale_epochs,
+                "backbone_requested": config["model"]["backbone"],
+                "backbone_actual": model.actual_backbone_name,
+                "class_names": class_names,
+            },
+            state_path,
+        )
+        print(f"[STATE] Saved resumable state: {state_path}", flush=True)
+
+        if stale_epochs >= patience:
+            print(f"Early stopping after {epoch} epochs.", flush=True)
+            break
 
     test_metrics = evaluate(model, loaders["test"], criterion, device, class_names, args.max_batches)
     report = {
         "experiment_name": config["experiment_name"],
-        "best_val_accuracy": best_accuracy,
+        "best_val_metric": best_metric,
+        "best_val_metric_name": "macro_f1",
+        "class_distribution": class_distribution,
+        "imbalance_handling": {
+            "mode": imbalance_mode,
+            "auto_threshold": auto_threshold,
+            "train_max_min_ratio": max_min_ratio,
+            "class_weights": class_weights.cpu().tolist() if class_weights is not None else None,
+            "sampler": "WeightedRandomSampler" if sampler is not None else None,
+        },
         "test": test_metrics,
         "history": history,
         "checkpoint": str(best_path),

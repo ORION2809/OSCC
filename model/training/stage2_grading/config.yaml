@@ -31,6 +31,14 @@ training:
   label_smoothing: 0.1
   early_stopping_patience: 10
 
+# Imbalance handling
+# OSMF is premalignant and may overlap with early WD-OSCC; normal and PD-OSCC
+# are smaller classes. Enable from the first real run when max/min ratio > threshold.
+imbalance:
+  mode: "weighted_loss"  # options: none, weighted_loss, weighted_sampler
+  auto_enable_threshold: 2.0  # max/min train-class ratio that triggers handling
+  weight_method: "inverse_frequency"  # options: inverse_frequency, effective_samples
+
 # Augmentation
 augmentation:
   horizontal_flip: true

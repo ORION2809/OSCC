@@ -228,6 +228,20 @@ def setup_orchid(download_only: bool = False) -> None:
     print("[WARN] ORCHID is large. Use this only if Colab has enough free disk.")
     print_disk()
 
+    processed_orchid = PROCESSED_ROOT / "orchid"
+    expected_classes = {"normal", "osmf", "wdoscc", "mdoscc", "pdoscc"}
+    if not download_only and all((processed_orchid / split).exists() for split in ("train", "val", "test")):
+        ready = True
+        for split in ("train", "val", "test"):
+            split_dir = processed_orchid / split
+            class_dirs = {path.name for path in split_dir.iterdir() if path.is_dir()}
+            if not expected_classes.issubset(class_dirs):
+                ready = False
+                break
+        if ready:
+            print(f"[SKIP] ORCHID processed dataset already present: {processed_orchid}")
+            return
+
     RAW_ROOT.mkdir(parents=True, exist_ok=True)
     for split, (url, archive) in ORCHID_FILES.items():
         if not archive.exists():
