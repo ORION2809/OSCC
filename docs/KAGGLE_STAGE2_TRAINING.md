@@ -30,6 +30,12 @@ EfficientNetB3.
 .\scripts\run_kaggle_stage2.ps1
 ```
 
+This now does two things:
+
+1. Pushes a cheap preflight kernel that verifies GPU, ORCHID dataset access,
+   Kaggle secret `HF_TOKEN`, and a one-batch UNI smoke run.
+2. Pushes the full training kernel only if preflight completes successfully.
+
 This pushes the private Kaggle script kernel:
 
 ```text
@@ -47,6 +53,8 @@ nazmulxdxd/orchid-oscc-classification
 ```powershell
 .\scripts\kaggle_stage2_status.ps1
 .\scripts\kaggle_stage2_status.ps1 -Logs
+.\scripts\kaggle_stage2_status.ps1 -Preflight
+.\scripts\kaggle_stage2_status.ps1 -Preflight -Logs
 ```
 
 ## Download Outputs

@@ -1,0 +1,17 @@
+{
+  "id": "shreyassuvarna123/oralpath-stage-2-orchid-level-1-preflight",
+  "title": "OralPath Stage 2 Orchid Level 1 Preflight",
+  "code_file": "stage2_orchid_level1_preflight.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "nazmulxdxd/orchid-oscc-classification"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

@@ -82,3 +82,6 @@ colab_*.png
 # Secrets
 kaggle.json
 *.secret
+
+# Generated Kaggle bundles
+model/kaggle/*/bundle/

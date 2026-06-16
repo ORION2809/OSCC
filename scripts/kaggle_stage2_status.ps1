@@ -1,11 +1,16 @@
 param(
-    [switch]$Logs
+    [switch]$Logs,
+    [switch]$Preflight
 )
 
 $ErrorActionPreference = "Stop"
 
 $RepoWin = (Resolve-Path "$PSScriptRoot\..").Path
-$Kernel = "shreyassuvarna123/oralpath-stage-2-orchid-level-1-training"
+$Kernel = if ($Preflight) {
+    "shreyassuvarna123/oralpath-stage-2-orchid-level-1-preflight"
+} else {
+    "shreyassuvarna123/oralpath-stage-2-orchid-level-1-training"
+}
 $KagglePython = Join-Path $RepoWin ".venv\Scripts\python.exe"
 
 if (-not $env:KAGGLE_API_TOKEN) {

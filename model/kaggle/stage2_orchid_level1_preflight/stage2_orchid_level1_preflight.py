@@ -1,4 +1,4 @@
-"""Kaggle background runner for OralPath Level 1 Stage 2 training."""
+"""Kaggle preflight runner for OralPath Level 1 Stage 2 training."""
 
 from __future__ import annotations
 
@@ -42,7 +42,27 @@ def require_gpu() -> None:
 
     print(f"[GPU] torch={torch.__version__} cuda={torch.cuda.is_available()}", flush=True)
     if not torch.cuda.is_available():
-        raise RuntimeError("Kaggle kernel started without GPU. Refusing full training on CPU.")
+        raise RuntimeError("Kaggle kernel started without GPU. Refusing to continue preflight.")
+
+
+def configure_huggingface_token() -> None:
+    if os.environ.get("HF_TOKEN"):
+        print("[HF] HF_TOKEN already present in environment.", flush=True)
+        return
+
+    try:
+        from kaggle_secrets import UserSecretsClient
+
+        token = UserSecretsClient().get_secret("HF_TOKEN")
+    except Exception as exc:
+        raise RuntimeError(f"Kaggle secret HF_TOKEN is required and was not available: {exc}") from exc
+
+    if not token:
+        raise RuntimeError("Kaggle secret HF_TOKEN is empty.")
+
+    os.environ["HF_TOKEN"] = token
+    os.environ["HUGGING_FACE_HUB_TOKEN"] = token
+    print("[HF] Hugging Face token loaded from Kaggle secret HF_TOKEN.", flush=True)
 
 
 def find_orchid_root() -> Path:
@@ -60,39 +80,21 @@ def find_orchid_root() -> Path:
     raise FileNotFoundError("Could not find attached ORCHID Kaggle dataset under /kaggle/input")
 
 
-def configure_huggingface_token() -> None:
-    try:
-        from kaggle_secrets import UserSecretsClient
-
-        token = UserSecretsClient().get_secret("HF_TOKEN")
-    except Exception as exc:
-        raise RuntimeError(f"Kaggle secret HF_TOKEN is required and was not available: {exc}") from exc
-
-    if not token:
-        raise RuntimeError("Kaggle secret HF_TOKEN is empty.")
-
-    os.environ["HF_TOKEN"] = token
-    os.environ["HUGGING_FACE_HUB_TOKEN"] = token
-    print("[HF] Hugging Face token loaded from Kaggle secret HF_TOKEN.", flush=True)
-
-
 def copy_outputs() -> None:
-    mappings = {
-        Path("/kaggle/working/stage2_logs/stage2_report.json"): Path("/kaggle/working/stage2_report.json"),
-        Path("/kaggle/working/stage2_checkpoints/stage2_last.pt"): Path("/kaggle/working/stage2_last.pt"),
-        Path("/kaggle/working/stage2_checkpoints/stage2_best.pt"): Path("/kaggle/working/stage2_best.pt"),
-    }
-
-    for source, destination in mappings.items():
-        if source.exists():
-            shutil.copy2(source, destination)
-            print(f"[OUTPUT] {destination} ({destination.stat().st_size} bytes)", flush=True)
-        else:
-            print(f"[WARN] Missing expected artifact: {source}", flush=True)
+    candidates = [
+        Path("/kaggle/working/stage2_logs/stage2_report.json"),
+        Path("/kaggle/working/stage2_checkpoints/stage2_last.pt"),
+        Path("/kaggle/working/stage2_checkpoints/stage2_best.pt"),
+    ]
+    for path in candidates:
+        if path.exists():
+            target = Path("/kaggle/working") / path.name
+            shutil.copy2(path, target)
+            print(f"[OUTPUT] {target}", flush=True)
 
 
 def main() -> int:
-    print("OralPath Kaggle Stage 2 runner", flush=True)
+    print("OralPath Kaggle Stage 2 preflight", flush=True)
     print(f"Python: {sys.version}", flush=True)
     if not BUNDLE_ROOT.exists():
         raise FileNotFoundError(f"Missing bundled code at {BUNDLE_ROOT}")
@@ -121,6 +123,10 @@ def main() -> int:
             "model/training/stage2_grading/train.py",
             "--config",
             str(CONFIG_PATH),
+            "--max-batches",
+            "1",
+            "--max-epochs",
+            "1",
             "--state-output",
             "/kaggle/working/stage2_checkpoints/stage2_last.pt",
         ],
@@ -128,7 +134,7 @@ def main() -> int:
     )
 
     copy_outputs()
-    print("[DONE] Stage 2 Kaggle training complete.", flush=True)
+    print("[DONE] Stage 2 preflight complete.", flush=True)
     return 0
 
 
