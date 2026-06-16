@@ -33,7 +33,7 @@ EfficientNetB3.
 This pushes the private Kaggle script kernel:
 
 ```text
-oralpath_user/oralpath-stage2-orchid-level1
+shreyassuvarna123/oralpath-stage-2-orchid-level-1-training
 ```
 
 The kernel attaches:

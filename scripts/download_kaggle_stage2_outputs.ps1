@@ -5,22 +5,24 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoWin = (Resolve-Path "$PSScriptRoot\..").Path
-$Kernel = "oralpath_user/oralpath-stage2-orchid-level1"
+$Kernel = "shreyassuvarna123/oralpath-stage-2-orchid-level-1-training"
 $OutputPath = Join-Path $RepoWin $OutputDir
-$LegacyCliDir = Join-Path $env:TEMP "oralpath_kaggle_legacy_cli"
-$KaggleExe = Join-Path $LegacyCliDir "Scripts\kaggle.exe"
+$KagglePython = Join-Path $RepoWin ".venv\Scripts\python.exe"
 
-if (-not (Test-Path $KaggleExe)) {
-    py -3 -m venv $LegacyCliDir
-    & (Join-Path $LegacyCliDir "Scripts\python.exe") -m pip install -q "kaggle==1.7.4.5"
+if (-not $env:KAGGLE_API_TOKEN) {
+    $token = (& $KagglePython -m kaggle auth print-access-token).Trim()
+    if ($token) {
+        $env:KAGGLE_API_TOKEN = $token
+    }
 }
 
 New-Item -ItemType Directory -Force -Path $OutputPath | Out-Null
 
 Write-Host "[DOWNLOAD] $Kernel -> $OutputPath"
-& $KaggleExe kernels output $Kernel -p $OutputPath -o
+& $KagglePython -m kaggle kernels output $Kernel -p $OutputPath -o
 if ($LASTEXITCODE -ne 0) {
     throw "Kaggle output download failed."
 }
 
 Get-ChildItem $OutputPath | Select-Object Name,Length,LastWriteTime
+Remove-Item Env:\KAGGLE_API_TOKEN -ErrorAction SilentlyContinue
