@@ -263,11 +263,34 @@ def setup_kaggle_oscc() -> None:
 
 
 def download_file(url: str, dest: Path) -> None:
+    """Download a large file with resume support, preferring wget over requests."""
     import requests
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     print(f"[DOWNLOAD] {url} -> {dest}", flush=True)
 
+    # Prefer wget because it handles large files, resume, and retries better.
+    wget_path = shutil.which("wget")
+    if wget_path:
+        command = [
+            wget_path,
+            "--continue",
+            "--tries=0",
+            "--timeout=120",
+            "--retry-connrefused",
+            "--progress=dot:giga",
+            "-O",
+            str(dest),
+            url,
+        ]
+        print("[RUN]", " ".join(command), flush=True)
+        completed = subprocess.run(command)
+        if completed.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
+            print(f"[OK] Saved {dest} ({dest.stat().st_size / 1e9:.2f} GB)", flush=True)
+            return
+        print("[WARN] wget download failed or produced empty file; falling back to requests.", flush=True)
+
+    # Fallback to requests with resume support.
     headers = {}
     mode = "wb"
     resume_from = 0
