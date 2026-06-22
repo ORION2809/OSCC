@@ -1,15 +1,50 @@
 """
 OralPath — Dataset Loader
 Shared dataset loading utilities for Kaggle OSCC and ORCHID datasets.
+
+Supports both directory-based datasets and zip-backed datasets. For zip-backed
+manifests, sample paths are encoded as ``zip://path/to.zip!entry/name.png`` and
+training code uses :func:`open_image_from_zip_path` to read them.
 """
 
+import io
 import json
 import os
+import zipfile
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
+from PIL import Image
 from sklearn.model_selection import train_test_split
+
+
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
+ZIP_PREFIX = "zip://"
+
+
+def encode_zip_path(zip_path: Path | str, entry_name: str) -> str:
+    """Return a portable string reference to a file inside a zip archive."""
+    return f"{ZIP_PREFIX}{zip_path}!{entry_name}"
+
+
+def decode_zip_path(path: str) -> Tuple[Path, str]:
+    """Parse a ``zip://...!entry`` path back into (zip_path, entry_name)."""
+    if not path.startswith(ZIP_PREFIX):
+        raise ValueError(f"Not a zip path: {path}")
+    rest = path[len(ZIP_PREFIX):]
+    if "!" not in rest:
+        raise ValueError(f"Zip path missing entry separator '!': {path}")
+    zip_str, entry_name = rest.split("!", 1)
+    return Path(zip_str), entry_name
+
+
+def open_image_from_zip_path(path: str) -> Image.Image:
+    """Open an image encoded as ``zip://zip_path!entry_name``."""
+    zip_path, entry_name = decode_zip_path(path)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        with zf.open(entry_name) as f:
+            return Image.open(io.BytesIO(f.read())).convert("RGB")
 
 
 class DatasetManifest:
@@ -27,6 +62,7 @@ class DatasetManifest:
         self.explicit_split_dirs = self.config.get("explicit_split_dirs", {})
         self.split_ratio = self.config["split"]
         self.seed = self.config["seed"]
+        self.zip_splits = self.config.get("zip_splits")
 
     def _resolve_class_dir(self, base_dir: Path, cls_name: str) -> Path | None:
         """Resolve class folders case-insensitively.
@@ -58,8 +94,40 @@ class DatasetManifest:
                     samples.append((str(fp), label_idx))
         return samples
 
+    def _match_class_from_zip_entry(self, entry_name: str) -> str | None:
+        """Return canonical class name for a zip entry based on its path parts."""
+        parts = [p.lower() for p in Path(entry_name).parts]
+        for cls_name in self.classes:
+            if cls_name.lower() in parts:
+                return cls_name
+            for alias in self.class_aliases.get(cls_name, []):
+                if alias.lower() in parts:
+                    return cls_name
+        return None
+
+    def _load_samples_from_zip(self, zip_path: Path) -> List[Tuple[str, int]]:
+        samples: List[Tuple[str, int]] = []
+        if not zip_path.exists():
+            print(f"[ERROR] Zip file does not exist: {zip_path}")
+            return samples
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for entry in zf.namelist():
+                if not entry.lower().endswith(tuple(IMAGE_EXTENSIONS)):
+                    continue
+                cls_name = self._match_class_from_zip_entry(entry)
+                if cls_name is None:
+                    continue
+                samples.append((encode_zip_path(zip_path, entry), self.classes[cls_name]))
+        return samples
+
     def has_explicit_splits(self) -> bool:
         """Return true when dataset is already organized as train/val/test."""
+        if self.zip_splits:
+            return all(
+                (self.local_path / self.zip_splits.get(split)).exists()
+                for split in ("train", "val", "test")
+                if self.zip_splits.get(split)
+            )
         return all(self._resolve_split_dir(split) is not None for split in ("train", "val", "test"))
 
     def _resolve_split_dir(self, split: str) -> Path | None:
@@ -87,11 +155,37 @@ class DatasetManifest:
                 return candidate
         return None
 
+    def _resolve_zip_split(self, split: str) -> Path | None:
+        if not self.zip_splits:
+            return None
+        zip_name = self.zip_splits.get(split)
+        if not zip_name:
+            return None
+        zip_path = self.local_path / zip_name
+        return zip_path if zip_path.exists() else None
+
     def validate(self) -> bool:
-        """Check that expected directories and files exist."""
+        """Check that expected directories or zip files exist."""
         if not self.local_path.exists():
             print(f"[ERROR] Dataset path does not exist: {self.local_path}")
             return False
+
+        if self.zip_splits:
+            valid = True
+            for split in ("train", "val", "test"):
+                zip_path = self._resolve_zip_split(split)
+                if zip_path is None:
+                    print(f"[ERROR] Zip for {split} not found under {self.local_path}")
+                    valid = False
+                else:
+                    try:
+                        with zipfile.ZipFile(zip_path, "r") as zf:
+                            namelist = zf.namelist()
+                            print(f"[OK] {split} zip: {zip_path} ({len(namelist)} entries)")
+                    except zipfile.BadZipFile:
+                        print(f"[ERROR] Corrupt zip: {zip_path}")
+                        valid = False
+            return valid
 
         bases = [self.local_path]
         if self.has_explicit_splits():
@@ -116,6 +210,17 @@ class DatasetManifest:
         Returns a dict with keys 'train', 'val', 'test'.
         Each value is a list of (filepath, label_index) tuples.
         """
+        if self.zip_splits:
+            splits = {}
+            for split in ("train", "val", "test"):
+                zip_path = self._resolve_zip_split(split)
+                if zip_path is None:
+                    raise ValueError(f"Zip for {split} not found under {self.local_path}")
+                splits[split] = self._load_samples_from_zip(zip_path)
+            if not any(splits.values()):
+                raise ValueError(f"No samples found in zip files under {self.local_path}")
+            return splits
+
         if self.has_explicit_splits():
             splits = {
                 split: self._load_samples_from_dir(self._resolve_split_dir(split))

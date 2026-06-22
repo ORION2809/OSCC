@@ -41,7 +41,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from model.data.preprocessing.dataset_loader import DatasetManifest
+from model.data.preprocessing.dataset_loader import DatasetManifest, open_image_from_zip_path
 
 
 def require_torch() -> None:
@@ -132,7 +132,10 @@ class ImageSplitDataset(Dataset):
 
     def __getitem__(self, idx):
         image_path, label = self.samples[idx]
-        image = Image.open(image_path).convert("RGB")
+        if image_path.startswith("zip://"):
+            image = open_image_from_zip_path(image_path)
+        else:
+            image = Image.open(image_path).convert("RGB")
         if self.transform:
             image = self.transform(image)
         return image, torch.tensor(label, dtype=torch.long)

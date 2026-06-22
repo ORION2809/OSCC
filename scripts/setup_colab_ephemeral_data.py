@@ -5,13 +5,15 @@ the data disappears when the Colab runtime is recycled, so downloads may need
 to be repeated in a new session.
 
 Stage 1 Kaggle OSCC is the recommended first target for ephemeral setup.
-Stage 2 ORCHID is much larger and should be downloaded only when the runtime
-has enough free disk and enough time left.
+Stage 2 ORCHID is much larger. To avoid the 53 GB extraction overflow, ORCHID
+is kept as downloaded zip archives and the training dataloader reads patches
+directly from the zip files.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import shutil
@@ -23,14 +25,61 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RAW_ROOT = REPO_ROOT / "model" / "data" / "raw"
 PROCESSED_ROOT = REPO_ROOT / "model" / "data" / "processed"
+MANIFEST_ROOT = REPO_ROOT / "model" / "data" / "manifests"
 
 KAGGLE_SLUG = "ashenafifasilkebede/dataset"
 ORCHID_KAGGLE_SLUG = "nazmulxdxd/orchid-oscc-classification"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+
+# Zenodo ORCHID split archives (avoids the 53 GB single Kaggle archive).
 ORCHID_FILES = {
     "train": ("https://zenodo.org/api/records/12636426/files/train.zip/content", RAW_ROOT / "train.zip"),
     "val": ("https://zenodo.org/api/records/12646943/files/val.zip/content", RAW_ROOT / "val.zip"),
     "test": ("https://zenodo.org/api/records/12646943/files/test.zip/content", RAW_ROOT / "test.zip"),
+}
+
+ORCHID_ZIP_MANIFEST = {
+    "name": "ORCHID",
+    "source": "https://zenodo.org/records/12636426 and https://zenodo.org/records/12646943",
+    "license": "CC BY 4.0",
+    "citation": "NishaChaudhary23 et al. (2024)",
+    "local_path": "model/data/raw",
+    "zip_splits": {
+        "train": "train.zip",
+        "val": "val.zip",
+        "test": "test.zip",
+    },
+    "expected_structure": {
+        "normal": "*.png",
+        "osmf": "*.png",
+        "wd": "*.png",
+        "md": "*.png",
+        "pd": "*.png",
+    },
+    "classes": {
+        "normal": 0,
+        "osmf": 1,
+        "wd": 2,
+        "md": 3,
+        "pd": 4,
+    },
+    "class_aliases": {
+        "wd": ["wdoscc"],
+        "md": ["mdoscc"],
+        "pd": ["pdoscc"],
+    },
+    "split": {
+        "train": 0.70,
+        "val": 0.15,
+        "test": 0.15,
+    },
+    "seed": 42,
+    "preprocessing": {
+        "target_size": [224, 224],
+        "normalize": True,
+        "stain_norm": "macenko",
+        "augmentation": ["flip", "rotation", "color_jitter"],
+    },
 }
 
 
@@ -217,45 +266,114 @@ def download_file(url: str, dest: Path) -> None:
     import requests
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with requests.get(url, stream=True, timeout=120) as response:
+    print(f"[DOWNLOAD] {url} -> {dest}", flush=True)
+
+    headers = {}
+    mode = "wb"
+    resume_from = 0
+    if dest.exists():
+        resume_from = dest.stat().st_size
+        headers["Range"] = f"bytes={resume_from}-"
+        mode = "ab"
+        print(f"[RESUME] continuing from {resume_from / 1e9:.2f} GB", flush=True)
+
+    with requests.get(url, stream=True, headers=headers, timeout=120) as response:
+        if response.status_code == 416:
+            print(f"[OK] Already complete: {dest} ({dest.stat().st_size / 1e9:.2f} GB)", flush=True)
+            return
         response.raise_for_status()
-        with dest.open("wb") as file:
+
+        total = response.headers.get("content-length")
+        if response.status_code == 206:
+            # Range response: total remaining
+            total = str(int(total) + resume_from) if total else None
+        total_gb = int(total) / 1e9 if total else None
+        if total_gb:
+            print(f"[SIZE] {total_gb:.2f} GB", flush=True)
+
+        downloaded = resume_from
+        with dest.open(mode) as file:
             for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
                 if chunk:
                     file.write(chunk)
+                    downloaded += len(chunk)
+                    if total and downloaded % (256 * 1024 * 1024) == 0:
+                        pct = downloaded / int(total) * 100
+                        print(f"[PROGRESS] {pct:.1f}% ({downloaded / 1e9:.2f} GB)", flush=True)
+    print(f"[OK] Saved {dest} ({dest.stat().st_size / 1e9:.2f} GB)", flush=True)
+
+
+def _class_name_from_path(parts: list[str], class_names: set[str], class_aliases: dict[str, list[str]]) -> str | None:
+    """Find a canonical class name in a path's parts (case-insensitive)."""
+    lowered = [p.lower() for p in parts]
+    for name in class_names:
+        if name.lower() in lowered:
+            return name
+        for alias in class_aliases.get(name, []):
+            if alias.lower() in lowered:
+                return name
+    return None
+
+
+def _write_zip_manifest() -> None:
+    """Write a manifest that tells the dataloader to read ORCHID from zip files."""
+    MANIFEST_ROOT.mkdir(parents=True, exist_ok=True)
+    manifest_path = MANIFEST_ROOT / "orchid_zip.json"
+    manifest_path.write_text(json.dumps(ORCHID_ZIP_MANIFEST, indent=2), encoding="utf-8")
+    print(f"[OK] Wrote zip manifest: {manifest_path}")
 
 
 def setup_orchid(download_only: bool = False) -> None:
-    print("[WARN] ORCHID is large. Use this only if Colab has enough free disk.")
+    print("[WARN] ORCHID is large. Reading directly from downloaded zips to save disk.")
     print_disk()
 
     processed_orchid = PROCESSED_ROOT / "orchid"
-    expected_classes = {"normal", "osmf", "wdoscc", "mdoscc", "pdoscc"}
-    if not download_only and all((processed_orchid / split).exists() for split in ("train", "val", "test")):
-        ready = True
-        for split in ("train", "val", "test"):
-            split_dir = processed_orchid / split
-            class_dirs = {path.name for path in split_dir.iterdir() if path.is_dir()}
-            if not expected_classes.issubset(class_dirs):
-                ready = False
-                break
-        if ready:
-            print(f"[SKIP] ORCHID processed dataset already present: {processed_orchid}")
-            return
+    if processed_orchid.exists() and any(processed_orchid.iterdir()):
+        print(f"[SKIP] ORCHID processed directory already present: {processed_orchid}")
+        return
 
-    # Prefer Kaggle mirror; fall back to Zenodo if Kaggle fails.
-    try:
-        setup_orchid_from_kaggle(download_only=download_only)
-    except Exception as exc:
-        print(f"[WARN] Kaggle ORCHID download failed: {exc}", flush=True)
-        print("[WARN] Falling back to Zenodo ORCHID download.", flush=True)
-        setup_orchid_from_zenodo(download_only=download_only)
+    setup_orchid_from_zenodo_zip(download_only=download_only)
+    print(f"[OK] ORCHID zip archives ready under {RAW_ROOT}")
+    print_disk()
 
-    print(f"[OK] ORCHID processed path: {PROCESSED_ROOT / 'orchid'}")
+
+def setup_orchid_from_zenodo_zip(download_only: bool = False) -> None:
+    """Download ORCHID split archives from Zenodo and keep them as zips."""
+    RAW_ROOT.mkdir(parents=True, exist_ok=True)
+    all_present = True
+    for split, (url, archive) in ORCHID_FILES.items():
+        if not archive.exists():
+            all_present = False
+            print(f"[MISSING] ORCHID {split} zip not found: {archive}")
+        else:
+            print(f"[PRESENT] ORCHID {split}: {archive} ({archive.stat().st_size / 1e9:.2f} GB)")
+
+    if not all_present:
+        for split, (url, archive) in ORCHID_FILES.items():
+            if not archive.exists():
+                download_file(url, archive)
+                print_disk()
+
+    if download_only:
+        return
+
+    _write_zip_manifest()
+
+    # Sanity-check each zip by listing a few entries.
+    for split, (url, archive) in ORCHID_FILES.items():
+        with zipfile.ZipFile(archive, "r") as zf:
+            entries = zf.namelist()
+            pngs = [e for e in entries if e.lower().endswith(".png")]
+            print(f"[VERIFY] {split}.zip: {len(entries)} entries, {len(pngs)} PNG patches", flush=True)
 
 
 def setup_orchid_from_kaggle(download_only: bool = False) -> None:
-    """Download ORCHID from the Kaggle mirror and restructure for training."""
+    """Legacy Kaggle single-archive path; kept for reference but not used by default.
+
+    This downloads a ~53 GB single zip and requires enough disk to hold both the
+    archive and its extracted contents at the same time, which usually overflows
+    Colab's ephemeral disk. Prefer setup_orchid_from_zenodo_zip.
+    """
     configure_kaggle_from_colab_secret()
     run(["python", "-m", "pip", "install", "-q", "kaggle"])
 
@@ -300,8 +418,6 @@ def setup_orchid_from_kaggle(download_only: bool = False) -> None:
         target.symlink_to(source, target_is_directory=True)
         print(f"[OK] Linked ORCHID {source_split} -> {target}")
 
-    # Delete the zip archive to reclaim disk; keep extracted tree because
-    # processed/orchid symlinks point into it.
     for archive in download_dir.glob("*.zip"):
         archive.unlink()
         print(f"[DELETE] Removed archive: {archive}")
@@ -310,6 +426,7 @@ def setup_orchid_from_kaggle(download_only: bool = False) -> None:
 
 
 def setup_orchid_from_zenodo(download_only: bool = False) -> None:
+    """Legacy Zenodo directory-extraction path; kept for reference."""
     RAW_ROOT.mkdir(parents=True, exist_ok=True)
     for split, (url, archive) in ORCHID_FILES.items():
         if not archive.exists():

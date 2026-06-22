@@ -1,0 +1,56 @@
+{
+  "name": "ORCHID",
+  "source": "https://zenodo.org/records/12636426 and https://zenodo.org/records/12646943",
+  "license": "CC BY 4.0",
+  "citation": "NishaChaudhary23 et al. (2024)",
+  "local_path": "model/data/raw",
+  "zip_splits": {
+    "train": "train.zip",
+    "val": "val.zip",
+    "test": "test.zip"
+  },
+  "expected_structure": {
+    "normal": "*.png",
+    "osmf": "*.png",
+    "wd": "*.png",
+    "md": "*.png",
+    "pd": "*.png"
+  },
+  "classes": {
+    "normal": 0,
+    "osmf": 1,
+    "wd": 2,
+    "md": 3,
+    "pd": 4
+  },
+  "class_aliases": {
+    "wd": [
+      "wdoscc"
+    ],
+    "md": [
+      "mdoscc"
+    ],
+    "pd": [
+      "pdoscc"
+    ]
+  },
+  "split": {
+    "train": 0.7,
+    "val": 0.15,
+    "test": 0.15
+  },
+  "seed": 42,
+  "preprocessing": {
+    "target_size": [
+      224,
+      224
+    ],
+    "normalize": true,
+    "stain_norm": "macenko",
+    "augmentation": [
+      "flip",
+      "rotation",
+      "color_jitter"
+    ]
+  }
+}

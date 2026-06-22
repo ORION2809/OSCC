@@ -6,7 +6,7 @@ seed: 42
 
 # Dataset
 dataset:
-  manifest: "model/data/manifests/orchid.json"
+  manifest: "model/data/manifests/orchid_zip.json"
   target_size: [224, 224]
   batch_size: 32
   num_workers: 4
