@@ -327,9 +327,23 @@ def setup_orchid(download_only: bool = False) -> None:
     print("[WARN] ORCHID is large. Reading directly from downloaded zips to save disk.")
     print_disk()
 
+    # If an old extracted/processed ORCHID tree is present, remove it so the
+    # zip archives have room to be downloaded.
     processed_orchid = PROCESSED_ROOT / "orchid"
-    if processed_orchid.exists() and any(processed_orchid.iterdir()):
-        print(f"[SKIP] ORCHID processed directory already present: {processed_orchid}")
+    if processed_orchid.exists():
+        print(f"[CLEANUP] Removing old extracted ORCHID tree: {processed_orchid}")
+        shutil.rmtree(processed_orchid)
+
+    # Check whether the zip archives we need are already present.
+    zips_present = all(
+        archive.exists()
+        for _, archive in ORCHID_FILES.values()
+    )
+    if zips_present:
+        print(f"[SKIP] ORCHID zip archives already present under {RAW_ROOT}")
+        if not download_only:
+            _write_zip_manifest()
+        print_disk()
         return
 
     setup_orchid_from_zenodo_zip(download_only=download_only)
