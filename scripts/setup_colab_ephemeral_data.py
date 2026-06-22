@@ -295,13 +295,18 @@ def setup_orchid_from_kaggle(download_only: bool = False) -> None:
             raise FileNotFoundError(f"Could not find ORCHID {source_split} under {extract_root}")
 
         target = processed_orchid / target_split
-        if target.exists():
-            shutil.rmtree(target)
-        shutil.copytree(source, target)
-        print(f"[OK] Copied ORCHID {source_split} -> {target}")
+        if target.is_symlink() or target.exists():
+            target.unlink()
+        target.symlink_to(source, target_is_directory=True)
+        print(f"[OK] Linked ORCHID {source_split} -> {target}")
 
-    shutil.rmtree(download_dir, ignore_errors=True)
-    shutil.rmtree(extract_root, ignore_errors=True)
+    # Delete the zip archive to reclaim disk; keep extracted tree because
+    # processed/orchid symlinks point into it.
+    for archive in download_dir.glob("*.zip"):
+        archive.unlink()
+        print(f"[DELETE] Removed archive: {archive}")
+    if download_dir.exists() and not any(download_dir.iterdir()):
+        download_dir.rmdir()
 
 
 def setup_orchid_from_zenodo(download_only: bool = False) -> None:
