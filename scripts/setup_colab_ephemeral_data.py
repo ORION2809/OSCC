@@ -25,6 +25,7 @@ RAW_ROOT = REPO_ROOT / "model" / "data" / "raw"
 PROCESSED_ROOT = REPO_ROOT / "model" / "data" / "processed"
 
 KAGGLE_SLUG = "ashenafifasilkebede/dataset"
+ORCHID_KAGGLE_SLUG = "nazmulxdxd/orchid-oscc-classification"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 ORCHID_FILES = {
     "train": ("https://zenodo.org/api/records/12636426/files/train.zip/content", RAW_ROOT / "train.zip"),
@@ -242,6 +243,68 @@ def setup_orchid(download_only: bool = False) -> None:
             print(f"[SKIP] ORCHID processed dataset already present: {processed_orchid}")
             return
 
+    # Prefer Kaggle mirror; fall back to Zenodo if Kaggle fails.
+    try:
+        setup_orchid_from_kaggle(download_only=download_only)
+    except Exception as exc:
+        print(f"[WARN] Kaggle ORCHID download failed: {exc}", flush=True)
+        print("[WARN] Falling back to Zenodo ORCHID download.", flush=True)
+        setup_orchid_from_zenodo(download_only=download_only)
+
+    print(f"[OK] ORCHID processed path: {PROCESSED_ROOT / 'orchid'}")
+
+
+def setup_orchid_from_kaggle(download_only: bool = False) -> None:
+    """Download ORCHID from the Kaggle mirror and restructure for training."""
+    configure_kaggle_from_colab_secret()
+    run(["python", "-m", "pip", "install", "-q", "kaggle"])
+
+    download_dir = RAW_ROOT / "orchid_kaggle_download"
+    download_dir.mkdir(parents=True, exist_ok=True)
+    run(["kaggle", "datasets", "download", "-d", ORCHID_KAGGLE_SLUG, "-p", str(download_dir)])
+
+    zip_files = list(download_dir.glob("*.zip"))
+    if not zip_files:
+        raise FileNotFoundError(f"No Kaggle zip downloaded into {download_dir}")
+
+    extract_root = RAW_ROOT / "orchid_kaggle_extracted"
+    extract_root.mkdir(parents=True, exist_ok=True)
+    for archive in zip_files:
+        print(f"[EXTRACT] {archive} -> {extract_root}")
+        with zipfile.ZipFile(archive, "r") as zip_ref:
+            zip_ref.extractall(extract_root)
+
+    if download_only:
+        shutil.rmtree(download_dir, ignore_errors=True)
+        return
+
+    processed_orchid = PROCESSED_ROOT / "orchid"
+    processed_orchid.mkdir(parents=True, exist_ok=True)
+
+    split_map = {
+        "train": ("ORCHID_train/train", "train"),
+        "val": ("ORCHID_val/val", "val"),
+        "test": ("ORCHID_test/test", "test"),
+    }
+
+    for source_split, (source_rel, target_split) in split_map.items():
+        source = extract_root / source_rel
+        if not source.exists():
+            source = extract_root / source_rel.split("/")[-1]
+        if not source.exists():
+            raise FileNotFoundError(f"Could not find ORCHID {source_split} under {extract_root}")
+
+        target = processed_orchid / target_split
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(source, target)
+        print(f"[OK] Copied ORCHID {source_split} -> {target}")
+
+    shutil.rmtree(download_dir, ignore_errors=True)
+    shutil.rmtree(extract_root, ignore_errors=True)
+
+
+def setup_orchid_from_zenodo(download_only: bool = False) -> None:
     RAW_ROOT.mkdir(parents=True, exist_ok=True)
     for split, (url, archive) in ORCHID_FILES.items():
         if not archive.exists():
@@ -256,8 +319,6 @@ def setup_orchid(download_only: bool = False) -> None:
         run(["python", "scripts/extract_orchid.py"], cwd=REPO_ROOT)
         archive.unlink(missing_ok=True)
         print(f"[DELETE] Removed archive after extraction: {archive}")
-
-    print(f"[OK] ORCHID processed path: {PROCESSED_ROOT / 'orchid'}")
 
 
 def main() -> int:
